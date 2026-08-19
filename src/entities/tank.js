@@ -12,7 +12,7 @@ class Tank {
     this.radius = 14;
 
     this.acceleration = 220; // px/s^2
-    this.friction = 260; // px/s^2, brings speed back to 0 when idle
+    this.friction = 312; // px/s^2, brings speed back to 0 when idle (+20% brake power)
     this.maxForwardSpeed = 140; // px/s
     this.maxReverseSpeed = 80; // px/s
     this.rotationSpeed = 2.6; // radians/s
