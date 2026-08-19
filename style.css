@@ -1,1 +1,14 @@
 /* Pixel Tank Duel styles */
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+}
+
+#game {
+  image-rendering: pixelated;
+  border: 2px solid #000;
+}
