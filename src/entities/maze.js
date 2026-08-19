@@ -1,13 +1,14 @@
 // Randomly generated grid-based maze, per GAME_SPEC.md section 3.3.
 // Recursive backtracking carves a perfect maze (guaranteed connected, no
-// loops), then a light "room-opening" pass removes a few extra interior
-// walls for a mix of tight 1-tile corridors and small open rooms. The
-// outer boundary is never touched by either pass, so it always fully
-// encloses the grid.
+// loops), then a room-opening pass removes a good number of extra
+// interior walls for a more open layout than a dense perfect maze (per
+// user direction: more open space than Tank Trouble, not less). The outer
+// boundary is never touched by either pass, so it always fully encloses
+// the grid.
 //
-// Walls are exposed as axis-aligned line segments so Tank/Bullet can
-// collide with them the same general way they collided with canvas edges
-// before a maze existed (see resolveCircleCollision / reflectOffWalls).
+// Walls are stored as axis-aligned rectangles (not zero-width lines) so
+// collision geometry matches the drawn wall thickness exactly — required
+// so tank parts can never visually overlap a wall.
 class Maze {
   constructor(cols, rows, cellSize) {
     this.cols = cols;
@@ -15,12 +16,12 @@ class Maze {
     this.cellSize = cellSize;
     this.width = cols * cellSize;
     this.height = rows * cellSize;
-    this.wallThickness = 4; // px
+    this.wallThickness = 6; // px, matches Tank's barrel width (see tank.js barrelHalfHeight)
 
     this.cells = this._buildEmptyGrid();
     this._carve();
-    this._openRooms(0.08);
-    this.walls = this._buildWallSegments();
+    this._openRooms(0.35);
+    this.wallRects = this._buildWallRects();
   }
 
   _buildEmptyGrid() {
@@ -75,9 +76,9 @@ class Maze {
     this.cells[nRow][nCol][opposite[dir]] = false;
   }
 
-  // Occasionally knock down an extra interior wall to create small open
-  // rooms/loops on top of the perfect maze. Never touches the outer
-  // boundary (col/row bounds below always stay within the grid).
+  // Knocks down extra interior walls on top of the perfect maze, for a
+  // much more open layout. Never touches the outer boundary (col/row
+  // bounds below always stay within the grid).
   _openRooms(chance) {
     for (let row = 0; row < this.rows; row++) {
       for (let col = 0; col < this.cols; col++) {
@@ -94,92 +95,175 @@ class Maze {
   // Each interior wall is shared by two cells; emit it once via the
   // "top"/"left" side so it isn't drawn/collided with twice. Boundary
   // "right"/"bottom" walls have no neighbor to claim them, so those are
-  // emitted directly from the edge cells.
-  _buildWallSegments() {
-    const segments = [];
+  // emitted directly from the edge cells. Every rect is extended by half
+  // the wall thickness on all sides so adjacent perpendicular walls meet
+  // cleanly at corners with no gap.
+  _buildWallRects() {
+    const half = this.wallThickness / 2;
+    const rects = [];
     for (let row = 0; row < this.rows; row++) {
       for (let col = 0; col < this.cols; col++) {
         const cell = this.cells[row][col];
         const x = col * this.cellSize;
         const y = row * this.cellSize;
 
-        if (cell.top) segments.push({ x1: x, y1: y, x2: x + this.cellSize, y2: y });
-        if (cell.left) segments.push({ x1: x, y1: y, x2: x, y2: y + this.cellSize });
+        if (cell.top) {
+          rects.push({ left: x - half, top: y - half, right: x + this.cellSize + half, bottom: y + half });
+        }
+        if (cell.left) {
+          rects.push({ left: x - half, top: y - half, right: x + half, bottom: y + this.cellSize + half });
+        }
         if (col === this.cols - 1 && cell.right) {
-          segments.push({ x1: x + this.cellSize, y1: y, x2: x + this.cellSize, y2: y + this.cellSize });
+          const wx = x + this.cellSize;
+          rects.push({ left: wx - half, top: y - half, right: wx + half, bottom: y + this.cellSize + half });
         }
         if (row === this.rows - 1 && cell.bottom) {
-          segments.push({ x1: x, y1: y + this.cellSize, x2: x + this.cellSize, y2: y + this.cellSize });
+          const wy = y + this.cellSize;
+          rects.push({ left: x - half, top: wy - half, right: x + this.cellSize + half, bottom: wy + half });
         }
       }
     }
-    return segments;
+    return rects;
   }
 
-  static _closestPointOnSegment(px, py, x1, y1, x2, y2) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const lenSq = dx * dx + dy * dy;
-    let t = lenSq === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / lenSq;
-    t = Math.max(0, Math.min(1, t));
-    return { x: x1 + t * dx, y: y1 + t * dy };
+  static _wallShape(wall) {
+    return {
+      cx: (wall.left + wall.right) / 2,
+      cy: (wall.top + wall.bottom) / 2,
+      halfW: (wall.right - wall.left) / 2,
+      halfH: (wall.bottom - wall.top) / 2,
+      angle: 0
+    };
   }
 
-  // Pushes a circle at (x, y) out of any wall it's overlapping. Used for
-  // the tank: no bounce, it just can't pass through.
-  resolveCircleCollision(x, y, radius) {
-    let px = x;
-    let py = y;
-    const effRadius = radius + this.wallThickness / 2;
+  static _rectCorners(rect) {
+    const cos = Math.cos(rect.angle);
+    const sin = Math.sin(rect.angle);
+    const local = [
+      [-rect.halfW, -rect.halfH],
+      [rect.halfW, -rect.halfH],
+      [rect.halfW, rect.halfH],
+      [-rect.halfW, rect.halfH]
+    ];
+    return local.map(([lx, ly]) => ({
+      x: rect.cx + lx * cos - ly * sin,
+      y: rect.cy + lx * sin + ly * cos
+    }));
+  }
 
-    for (let pass = 0; pass < 2; pass++) {
-      for (const wall of this.walls) {
-        const closest = Maze._closestPointOnSegment(px, py, wall.x1, wall.y1, wall.x2, wall.y2);
-        const dx = px - closest.x;
-        const dy = py - closest.y;
-        const distSq = dx * dx + dy * dy;
-        if (distSq > 0 && distSq < effRadius * effRadius) {
-          const dist = Math.sqrt(distSq);
-          const overlap = effRadius - dist;
-          px += (dx / dist) * overlap;
-          py += (dy / dist) * overlap;
-        }
+  static _rectAxes(rect) {
+    return [
+      { x: Math.cos(rect.angle), y: Math.sin(rect.angle) },
+      { x: -Math.sin(rect.angle), y: Math.cos(rect.angle) }
+    ];
+  }
+
+  static _project(corners, axis) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const corner of corners) {
+      const p = corner.x * axis.x + corner.y * axis.y;
+      if (p < min) min = p;
+      if (p > max) max = p;
+    }
+    return { min, max };
+  }
+
+  // Separating Axis Theorem for two (possibly rotated) rectangles. Returns
+  // the minimum-translation-vector to push rectA out of rectB, or null if
+  // they don't overlap.
+  static _satOverlap(rectA, rectB) {
+    const cornersA = Maze._rectCorners(rectA);
+    const cornersB = Maze._rectCorners(rectB);
+    const axes = [...Maze._rectAxes(rectA), ...Maze._rectAxes(rectB)];
+
+    let minOverlap = Infinity;
+    let mtvAxis = null;
+
+    for (const axis of axes) {
+      const projA = Maze._project(cornersA, axis);
+      const projB = Maze._project(cornersB, axis);
+      const overlap = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
+      if (overlap <= 0) return null;
+      if (overlap < minOverlap) {
+        minOverlap = overlap;
+        mtvAxis = axis;
       }
     }
 
-    return { x: px, y: py };
+    const dx = rectA.cx - rectB.cx;
+    const dy = rectA.cy - rectB.cy;
+    const sign = dx * mtvAxis.x + dy * mtvAxis.y < 0 ? -1 : 1;
+    return { x: mtvAxis.x * minOverlap * sign, y: mtvAxis.y * minOverlap * sign };
+  }
+
+  // Pushes the tank's body AND barrel shapes out of every wall they
+  // overlap, so no part of the tank can ever end up inside a wall.
+  // Mutates tank.x / tank.y directly (each shape reads the tank's live
+  // position, so a push from one shape/wall is immediately reflected for
+  // the next check in the same pass).
+  resolveTankCollision(tank) {
+    for (let pass = 0; pass < 3; pass++) {
+      for (const wall of this.wallRects) {
+        const wallShape = Maze._wallShape(wall);
+        this._pushShapeOut(tank, tank.getBodyShape(), wallShape);
+        this._pushShapeOut(tank, tank.getBarrelShape(), wallShape);
+      }
+    }
+  }
+
+  _pushShapeOut(tank, shape, wallShape) {
+    const mtv = Maze._satOverlap(shape, wallShape);
+    if (mtv) {
+      tank.x += mtv.x;
+      tank.y += mtv.y;
+    }
+  }
+
+  // True if the tank's barrel is touching (or inside) a wall in the
+  // direction it's facing — used to block firing so a bullet can never
+  // spawn past a wall the tank is leaning against. Uses a slightly
+  // inflated barrel shape as a "sensor," since after resolveTankCollision
+  // has already pushed the tank clear, the true barrel shape sits at
+  // ~zero distance from the wall rather than overlapping it.
+  isBarrelBlocked(tank) {
+    const sensorMargin = 2; // px
+    const barrel = tank.getBarrelShape();
+    const sensor = { ...barrel, halfW: barrel.halfW + sensorMargin, halfH: barrel.halfH + sensorMargin };
+
+    for (const wall of this.wallRects) {
+      if (Maze._satOverlap(sensor, Maze._wallShape(wall))) return true;
+    }
+    return false;
   }
 
   // Moves a bullet by (dx, dy) in small substeps rather than one big jump,
-  // so a fast bullet can't skip clean over a thin wall between frames (a
-  // single endpoint-only check can miss walls thinner than one frame's
-  // travel distance). 8 substeps keeps each substep's travel comfortably
-  // under a wall's collision margin at the bullet's fixed speed. Stops and
-  // reflects at the first substep that hits a wall — mirrors the bullet's
-  // angle off it (vertical wall flips horizontal velocity, horizontal
-  // wall flips vertical velocity) and repositions it just outside.
+  // so a fast bullet can't skip clean over a thin wall between frames (an
+  // endpoint-only check can miss walls thinner than one frame's travel
+  // distance). 8 substeps keeps each substep's travel comfortably under a
+  // wall's collision margin at the bullet's fixed speed. Stops and
+  // reflects at the first substep that hits a wall.
   moveWithBounce(bullet, dx, dy) {
     const steps = 8;
     const stepDx = dx / steps;
     const stepDy = dy / steps;
-    const effRadius = bullet.radius + this.wallThickness / 2;
     let x = bullet.x;
     let y = bullet.y;
 
     for (let i = 0; i < steps; i++) {
       const nextX = x + stepDx;
       const nextY = y + stepDy;
-      const hitWall = this._findWallHit(nextX, nextY, effRadius);
+      const hitWall = this._findWallHit(nextX, nextY, bullet.radius);
 
       if (hitWall) {
-        const isVertical = hitWall.x1 === hitWall.x2;
+        const isVertical = hitWall.right - hitWall.left < hitWall.bottom - hitWall.top;
         if (isVertical) {
-          const wallX = hitWall.x1;
-          x = nextX < wallX ? wallX - effRadius : wallX + effRadius;
+          const wallCenterX = (hitWall.left + hitWall.right) / 2;
+          x = nextX < wallCenterX ? hitWall.left - bullet.radius : hitWall.right + bullet.radius;
           bullet.angle = Math.PI - bullet.angle;
         } else {
-          const wallY = hitWall.y1;
-          y = nextY < wallY ? wallY - effRadius : wallY + effRadius;
+          const wallCenterY = (hitWall.top + hitWall.bottom) / 2;
+          y = nextY < wallCenterY ? hitWall.top - bullet.radius : hitWall.bottom + bullet.radius;
           bullet.angle = -bullet.angle;
         }
         return { x, y, bounced: true };
@@ -192,16 +276,17 @@ class Maze {
     return { x, y, bounced: false };
   }
 
-  _findWallHit(px, py, effRadius) {
+  _findWallHit(px, py, radius) {
     let closestWall = null;
     let closestDistSq = Infinity;
 
-    for (const wall of this.walls) {
-      const closest = Maze._closestPointOnSegment(px, py, wall.x1, wall.y1, wall.x2, wall.y2);
-      const dx = px - closest.x;
-      const dy = py - closest.y;
+    for (const wall of this.wallRects) {
+      const closestX = Math.max(wall.left, Math.min(px, wall.right));
+      const closestY = Math.max(wall.top, Math.min(py, wall.bottom));
+      const dx = px - closestX;
+      const dy = py - closestY;
       const distSq = dx * dx + dy * dy;
-      if (distSq < effRadius * effRadius && distSq < closestDistSq) {
+      if (distSq < radius * radius && distSq < closestDistSq) {
         closestDistSq = distSq;
         closestWall = wall;
       }
@@ -267,14 +352,9 @@ class Maze {
     ctx.fillStyle = '#4a7a3d';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    ctx.strokeStyle = '#5b3a29';
-    ctx.lineWidth = this.wallThickness;
-    ctx.lineCap = 'square';
-    for (const wall of this.walls) {
-      ctx.beginPath();
-      ctx.moveTo(wall.x1, wall.y1);
-      ctx.lineTo(wall.x2, wall.y2);
-      ctx.stroke();
+    ctx.fillStyle = '#5b3a29';
+    for (const wall of this.wallRects) {
+      ctx.fillRect(wall.left, wall.top, wall.right - wall.left, wall.bottom - wall.top);
     }
   }
 }

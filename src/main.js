@@ -1,7 +1,7 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
-const maze = new Maze(16, 12, 40); // 16*40=640, 12*40=480, matches the canvas size
+const maze = new Maze(8, 6, 80); // 8*80=640, 6*80=480, matches the canvas size
 const spawnPoints = maze.getSpawnPoints(2); // only spawnPoints[0] is used until an AI tank exists
 
 const playerTank = new Tank(spawnPoints[0].x, spawnPoints[0].y, '#3b6ea5');
@@ -15,13 +15,15 @@ function activeBulletCount(tank) {
 startLoop(
   (dt) => {
     playerTank.update(dt, Input.keys);
-    const resolved = maze.resolveCircleCollision(playerTank.x, playerTank.y, playerTank.radius);
-    playerTank.x = resolved.x;
-    playerTank.y = resolved.y;
+    maze.resolveTankCollision(playerTank);
 
-    if (Input.justPressed[' '] && activeBulletCount(playerTank) < playerTank.maxActiveBullets) {
-      const tip = playerTank.getBarrelTip();
-      bullets.push(new Bullet(tip.x, tip.y, playerTank.angle, playerTank));
+    if (Input.justPressed[' ']) {
+      if (maze.isBarrelBlocked(playerTank)) {
+        AudioEngine.playEmptyFireClick();
+      } else if (activeBulletCount(playerTank) < playerTank.maxActiveBullets) {
+        const tip = playerTank.getBarrelTip();
+        bullets.push(new Bullet(tip.x, tip.y, playerTank.angle, playerTank));
+      }
     }
 
     bullets.forEach((bullet) => bullet.update(dt, maze));
