@@ -1,7 +1,8 @@
 // Tank-drive movement: forward/back along facing direction, left/right
-// rotates. Acceleration/deceleration per GAME_SPEC.md section 3.1.
-// Wall/opponent collision is not implemented yet (no maze exists yet) —
-// tank is clamped to the canvas bounds as a temporary stand-in.
+// rotates. Acceleration/deceleration per GAME_SPEC.md section 3.1. Wall
+// collision is resolved externally by Maze.resolveCircleCollision() after
+// update() moves the tank. Opponent-tank collision isn't implemented yet
+// (no second tank exists).
 class Tank {
   constructor(x, y, color) {
     this.x = x;
@@ -47,11 +48,6 @@ class Tank {
 
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
-  }
-
-  clampToBounds(width, height) {
-    this.x = Math.max(this.radius, Math.min(width - this.radius, this.x));
-    this.y = Math.max(this.radius, Math.min(height - this.radius, this.y));
   }
 
   draw(ctx) {

@@ -1,7 +1,7 @@
-// Bullet fired from a tank's barrel. Bounces off walls at a mirrored angle
-// instead of disappearing, per GAME_SPEC.md section 3.2 (the signature
-// mechanic). Bounds are passed into update() rather than read from the
-// canvas directly, so this still works once real maze walls exist.
+// Bullet fired from a tank's barrel. Bounces off maze walls at a mirrored
+// angle instead of disappearing, per GAME_SPEC.md section 3.2 (the
+// signature mechanic). The maze owns the actual reflection math (see
+// Maze.reflectOffWalls) since it knows where the walls are.
 class Bullet {
   constructor(x, y, angle, owner) {
     this.x = x;
@@ -20,42 +20,26 @@ class Bullet {
     this.alive = true;
   }
 
-  update(dt, bounds) {
+  update(dt, maze) {
     this.lifetime += dt;
     if (this.lifetime >= this.maxLifetime) {
       this.alive = false;
       return;
     }
 
-    let nextX = this.x + Math.cos(this.angle) * this.speed * dt;
-    let nextY = this.y + Math.sin(this.angle) * this.speed * dt;
+    const dx = Math.cos(this.angle) * this.speed * dt;
+    const dy = Math.sin(this.angle) * this.speed * dt;
 
-    if (nextX - this.radius < bounds.left) {
-      nextX = bounds.left + this.radius;
-      this.angle = Math.PI - this.angle;
+    const result = maze.moveWithBounce(this, dx, dy);
+    if (result.bounced) {
       this.bounceCount++;
-    } else if (nextX + this.radius > bounds.right) {
-      nextX = bounds.right - this.radius;
-      this.angle = Math.PI - this.angle;
-      this.bounceCount++;
+      if (this.bounceCount >= this.maxBounces) {
+        this.alive = false;
+      }
     }
 
-    if (nextY - this.radius < bounds.top) {
-      nextY = bounds.top + this.radius;
-      this.angle = -this.angle;
-      this.bounceCount++;
-    } else if (nextY + this.radius > bounds.bottom) {
-      nextY = bounds.bottom - this.radius;
-      this.angle = -this.angle;
-      this.bounceCount++;
-    }
-
-    if (this.bounceCount >= this.maxBounces) {
-      this.alive = false;
-    }
-
-    this.x = nextX;
-    this.y = nextY;
+    this.x = result.x;
+    this.y = result.y;
   }
 
   draw(ctx) {
