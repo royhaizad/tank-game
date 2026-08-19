@@ -44,8 +44,9 @@ cannot pass through either.
 - Bullets expire after 6 seconds OR 5 wall bounces, whichever comes first.
 - A bullet destroys any tank it touches, including the tank that fired it.
   Self-kill via your own ricochet is intentional.
-- Base cannon: only 1 bullet in flight per tank at a time. Cannot fire
-  again until the previous bullet is gone. ~1 second cooldown after that.
+- Base cannon: up to 5 bullets in flight per tank at once, fired one at a
+  time (one bullet per Spacebar press, not full-auto). No cooldown between
+  shots — firing rate is limited only by the 5-bullet cap.
 
 ### 3.3 Maze Generation
 New random maze every match, using grid-based generation (recursive

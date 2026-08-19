@@ -18,14 +18,8 @@ class Tank {
     this.rotationSpeed = 2.6; // radians/s
 
     this.barrelLength = this.radius + 12; // px, from tank center to barrel tip
-    this.activeBullet = null;
-    this.cooldownRemaining = 0; // s, must reach 0 before firing again
-    this.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 3.2
+    this.maxActiveBullets = 5; // per GAME_SPEC.md section 3.2
     this.destroyed = false;
-  }
-
-  canFire() {
-    return this.activeBullet === null && this.cooldownRemaining <= 0;
   }
 
   getBarrelTip() {
@@ -36,10 +30,6 @@ class Tank {
   }
 
   update(dt, keys) {
-    if (this.cooldownRemaining > 0) {
-      this.cooldownRemaining = Math.max(0, this.cooldownRemaining - dt);
-    }
-
     if (keys['w']) {
       this.speed += this.acceleration * dt;
     } else if (keys['s']) {

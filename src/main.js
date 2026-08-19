@@ -7,16 +7,18 @@ let bullets = [];
 
 const worldBounds = { left: 0, top: 0, right: canvas.width, bottom: canvas.height };
 
+function activeBulletCount(tank) {
+  return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
+}
+
 startLoop(
   (dt) => {
     playerTank.update(dt, Input.keys);
     playerTank.clampToBounds(canvas.width, canvas.height);
 
-    if (Input.justPressed[' '] && playerTank.canFire()) {
+    if (Input.justPressed[' '] && activeBulletCount(playerTank) < playerTank.maxActiveBullets) {
       const tip = playerTank.getBarrelTip();
-      const bullet = new Bullet(tip.x, tip.y, playerTank.angle, playerTank);
-      bullets.push(bullet);
-      playerTank.activeBullet = bullet;
+      bullets.push(new Bullet(tip.x, tip.y, playerTank.angle, playerTank));
     }
 
     bullets.forEach((bullet) => bullet.update(dt, worldBounds));
@@ -35,12 +37,7 @@ startLoop(
       });
     });
 
-    bullets = bullets.filter((bullet) => {
-      if (bullet.alive) return true;
-      bullet.owner.activeBullet = null;
-      bullet.owner.cooldownRemaining = bullet.owner.fireCooldownDuration;
-      return false;
-    });
+    bullets = bullets.filter((bullet) => bullet.alive);
 
     Input.update();
   },
