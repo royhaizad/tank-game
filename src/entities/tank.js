@@ -16,9 +16,30 @@ class Tank {
     this.maxForwardSpeed = 140; // px/s
     this.maxReverseSpeed = 80; // px/s
     this.rotationSpeed = 2.6; // radians/s
+
+    this.barrelLength = this.radius + 12; // px, from tank center to barrel tip
+    this.activeBullet = null;
+    this.cooldownRemaining = 0; // s, must reach 0 before firing again
+    this.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 3.2
+    this.destroyed = false;
+  }
+
+  canFire() {
+    return this.activeBullet === null && this.cooldownRemaining <= 0;
+  }
+
+  getBarrelTip() {
+    return {
+      x: this.x + Math.cos(this.angle) * this.barrelLength,
+      y: this.y + Math.sin(this.angle) * this.barrelLength
+    };
   }
 
   update(dt, keys) {
+    if (this.cooldownRemaining > 0) {
+      this.cooldownRemaining = Math.max(0, this.cooldownRemaining - dt);
+    }
+
     if (keys['w']) {
       this.speed += this.acceleration * dt;
     } else if (keys['s']) {
@@ -54,7 +75,7 @@ class Tank {
 
     // Barrel
     ctx.fillStyle = '#333';
-    ctx.fillRect(0, -3, this.radius + 12, 6);
+    ctx.fillRect(0, -3, this.barrelLength, 6);
 
     ctx.restore();
   }
