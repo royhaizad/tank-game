@@ -84,9 +84,15 @@ Selected on a pre-match screen (Easy / Medium / Hard).
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
-| **Easy** | Casually approaches the player, basic wall-avoidance | ~50% | None (direct line of sight only) | ~0.8s | Ignores ~half the time |
+| **Easy** | Casually approaches the player; simple BFS pathfinding around walls when there's no direct line to the player, basic reactive wall-avoidance otherwise | ~50% | None (direct line of sight only) | ~0.8s | Ignores ~half the time |
 | **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
 | **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
+
+**Note:** Easy now also pathfinds around walls (added to fix it getting stuck leaning
+on a wall with no route to the player), so "pathfinding" no longer distinguishes
+Medium/Hard from Easy. When Medium is built, it needs a different defining trait
+than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
+aiming, or actually using bank shots — to stay meaningfully harder than Easy.
 
 ---
 

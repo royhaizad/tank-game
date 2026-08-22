@@ -295,6 +295,66 @@ class Maze {
     return closestWall;
   }
 
+  worldToCell(x, y) {
+    return {
+      row: Math.min(this.rows - 1, Math.max(0, Math.floor(y / this.cellSize))),
+      col: Math.min(this.cols - 1, Math.max(0, Math.floor(x / this.cellSize)))
+    };
+  }
+
+  // Shortest path (in cell steps) from one cell to another, following
+  // only open passages — BFS on an unweighted grid always finds the
+  // shortest path. Returns an array of {row, col} from "from" to "to"
+  // inclusive, or null if unreachable (shouldn't happen; the maze is
+  // always fully connected by construction).
+  findPath(from, to) {
+    if (from.row === to.row && from.col === to.col) return [from];
+
+    const visited = [];
+    const cameFrom = [];
+    for (let row = 0; row < this.rows; row++) {
+      visited.push(new Array(this.cols).fill(false));
+      cameFrom.push(new Array(this.cols).fill(null));
+    }
+
+    const queue = [from];
+    visited[from.row][from.col] = true;
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current.row === to.row && current.col === to.col) {
+        const path = [current];
+        let node = current;
+        while (cameFrom[node.row][node.col]) {
+          node = cameFrom[node.row][node.col];
+          path.push(node);
+        }
+        return path.reverse();
+      }
+
+      const moves = [
+        ['top', -1, 0],
+        ['right', 0, 1],
+        ['bottom', 1, 0],
+        ['left', 0, -1]
+      ];
+      for (const [dir, dRow, dCol] of moves) {
+        const nRow = current.row + dRow;
+        const nCol = current.col + dCol;
+        if (
+          nRow >= 0 && nRow < this.rows && nCol >= 0 && nCol < this.cols &&
+          !visited[nRow][nCol] && !this.cells[current.row][current.col][dir]
+        ) {
+          visited[nRow][nCol] = true;
+          cameFrom[nRow][nCol] = current;
+          queue.push({ row: nRow, col: nCol });
+        }
+      }
+    }
+
+    return null;
+  }
+
   // Two grid cells that are maximally distant from each other, measured by
   // path distance through the maze (not straight-line), per GAME_SPEC.md
   // section 3.3. Classic "maze diameter" technique: BFS from any cell to

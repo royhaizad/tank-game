@@ -1,7 +1,10 @@
 // Easy-tier AI, per GAME_SPEC.md section 5: casually approaches the
-// player with basic wall-avoidance, ~0.8s reaction delay, ~50% shot
-// accuracy, and only ever fires when it has a direct, unobstructed line
-// of sight to the player (no bank shots).
+// player, ~0.8s reaction delay, ~50% shot accuracy, and only ever fires
+// when it has a direct, unobstructed line of sight to the player (no bank
+// shots). When there's no direct line to the player (they're behind a
+// wall), it falls back to simple BFS pathfinding through the maze grid
+// instead of blindly steering toward a wall it can't cross; otherwise
+// it's just basic reactive wall-avoidance.
 //
 // update() produces the same {w,a,s,d} shape Input.keys already produces
 // for the human player, plus a wantsToFire flag — so main.js can drive
@@ -13,6 +16,8 @@ class EasyAI {
     this.reactionTimer = 0;
     this.keys = { w: false, a: false, s: false, d: false };
     this.wantsToFire = false;
+    this.waypointCell = null; // cell currently being steered toward, when pathfinding
+    this.pathTargetCell = null; // the target's cell the current path was planned for
   }
 
   // Re-decides movement/firing intent roughly every reactionInterval
@@ -35,9 +40,18 @@ class EasyAI {
       // of driving into what's ahead.
       this.keys[Math.random() < 0.5 ? 'a' : 'd'] = true;
     } else {
-      // Casually approach the player: turn toward their direction while
-      // still driving forward, rather than stopping to aim first.
-      const angleToTarget = Math.atan2(target.y - tank.y, target.x - tank.x);
+      // Casually approach the player: turn toward their direction (or,
+      // if they're not directly reachable, toward the next waypoint on a
+      // pathfound route) while still driving forward, rather than
+      // stopping to aim first.
+      let steerTarget = target;
+      if (this._hasLineOfSight(tank, target, maze)) {
+        this.waypointCell = null; // forget any stale plan; re-plan fresh next time it's needed
+      } else {
+        steerTarget = this._nextWaypoint(tank, target, maze) || target;
+      }
+
+      const angleToTarget = Math.atan2(steerTarget.y - tank.y, steerTarget.x - tank.x);
       const angleDiff = EasyAI._normalizeAngle(angleToTarget - tank.angle);
       const turnDeadzone = 0.15; // radians, avoids jitter when nearly aligned already
 
@@ -48,6 +62,34 @@ class EasyAI {
     }
 
     this.wantsToFire = this._decideFire(tank, target, maze);
+  }
+
+  // The world-space center of the next cell along a BFS-shortest path
+  // from the tank's current cell to the target's — i.e. the immediate
+  // waypoint to steer toward when there's no direct line to the target.
+  //
+  // Commits to the same waypoint cell across multiple reaction ticks
+  // instead of re-planning every tick: an open maze often has several
+  // equally-short routes, so re-planning from scratch each tick could
+  // flip-flop between different valid routes and never actually get
+  // anywhere. Only re-plans once the tank has actually reached its
+  // current waypoint cell, or once the target has moved to a new cell.
+  _nextWaypoint(tank, target, maze) {
+    const fromCell = maze.worldToCell(tank.x, tank.y);
+    const toCell = maze.worldToCell(target.x, target.y);
+
+    const reachedWaypoint =
+      !this.waypointCell || (fromCell.row === this.waypointCell.row && fromCell.col === this.waypointCell.col);
+    const targetMoved =
+      !this.pathTargetCell || this.pathTargetCell.row !== toCell.row || this.pathTargetCell.col !== toCell.col;
+
+    if (reachedWaypoint || targetMoved) {
+      const path = maze.findPath(fromCell, toCell);
+      this.pathTargetCell = toCell;
+      this.waypointCell = path && path.length >= 2 ? path[1] : null;
+    }
+
+    return this.waypointCell ? maze._cellCenter(this.waypointCell.row, this.waypointCell.col) : null;
   }
 
   _isPathBlocked(tank, maze) {
