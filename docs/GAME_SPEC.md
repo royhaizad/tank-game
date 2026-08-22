@@ -85,7 +85,7 @@ Selected on a pre-match screen (Easy / Medium / Hard).
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
-| **Easy** | Casually approaches the player; simple BFS pathfinding around walls when there's no direct line to the player, basic reactive wall-avoidance otherwise | ~50% | None (direct line of sight only) | ~0.8s | Ignores ~half the time |
+| **Easy** | Casually approaches the player (steers toward them, or a pathfound waypoint when out of sight); on hitting a wall it stops, turns, tries the new heading briefly, and reverses + retries a different direction if still stuck | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-aiming/re-pathing only — obstacle response and firing are immediate, see notes) | Ignores ~half the time |
 | **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
 | **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
 
@@ -94,6 +94,18 @@ on a wall with no route to the player), so "pathfinding" no longer distinguishes
 Medium/Hard from Easy. When Medium is built, it needs a different defining trait
 than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
 aiming, or actually using bank shots — to stay meaningfully harder than Easy.
+
+**Firing trigger (Easy):** fires as soon as the player has been continuously aimed-at
+and directly visible (unobstructed line of sight) for 0.5s — not a random chance
+anymore (the old ~50%-per-0.8s-tick roll felt too slow to get an opening shot off).
+"Accuracy" for Easy is effectively retired until a real aim-miss mechanic exists;
+Medium/Hard should define their own accuracy behavior when built. Still subject to
+the 1-bullet/1s-cooldown ammo limit below.
+
+**Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) reacts
+every frame, not on the ~0.8s reaction-delay cadence — that delay now only governs
+how often the AI reconsiders its overall target (direct approach vs. a pathfound
+waypoint), not how fast it notices a wall in front of it.
 
 **Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
 cooldown after it's gone before firing again — stricter than the player's 5-bullet,

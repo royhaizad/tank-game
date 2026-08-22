@@ -1,10 +1,16 @@
-// Easy-tier AI, per GAME_SPEC.md section 5: casually approaches the
-// player, ~0.8s reaction delay, ~50% shot accuracy, and only ever fires
-// when it has a direct, unobstructed line of sight to the player (no bank
-// shots). When there's no direct line to the player (they're behind a
-// wall), it falls back to simple BFS pathfinding through the maze grid
-// instead of blindly steering toward a wall it can't cross; otherwise
-// it's just basic reactive wall-avoidance.
+// Easy-tier AI, per GAME_SPEC.md section 5.
+//
+// Movement is a small state machine that reacts to obstacles every frame
+// (stop -> turn -> try the new heading -> reverse-and-retry if that also
+// fails), rather than blindly holding forward while steering. Which point
+// it steers toward (the player directly, or a pathfound waypoint when out
+// of sight) is only reconsidered every ~0.8s reaction tick — that's the
+// "casual" part; obstacle response itself is immediate so it doesn't lean
+// on walls waiting for its next reaction tick.
+//
+// Firing fires reliably (no random chance) once the player has been
+// continuously aimed-at and directly visible for 0.5s, and only ever
+// while that line of sight stays clear (no bank shots).
 //
 // update() produces the same {w,a,s,d} shape Input.keys already produces
 // for the human player, plus a wantsToFire flag — so main.js can drive
@@ -12,56 +18,139 @@
 // player uses. No changes needed to Tank, Bullet, or Maze for this.
 class EasyAI {
   constructor() {
-    this.reactionInterval = 0.8; // s, per GAME_SPEC.md section 5
+    this.reactionInterval = 0.8; // s, per GAME_SPEC.md section 5 (re-targeting cadence only)
     this.reactionTimer = 0;
+
     this.keys = { w: false, a: false, s: false, d: false };
     this.wantsToFire = false;
+
+    // Where to steer toward — the player directly, or a pathfound
+    // waypoint — refreshed every reaction tick by _retarget().
+    this.steerPoint = null;
+
+    // Movement state machine.
+    this.moveState = 'seek'; // 'seek' | 'blockedTurn' | 'attempting' | 'reversing'
+    this.turnDirection = 'a';
+    this.stateTimer = 0;
+    this.blockedTurnTimeout = 1.2; // s, safety cap so it can't spin in place forever
+    this.attemptDuration = 0.5; // s, how long it tries the new heading before giving up
+    this.reverseDuration = 0.5; // s, how long it backs up before retrying
+
+    // Pathfinding.
     this.waypointCell = null; // cell currently being steered toward, when pathfinding
     this.pathTargetCell = null; // the target's cell the current path was planned for
+
+    // Firing.
+    this.sightedTime = 0; // s, how long the player has been continuously aimed-at + visible
+    this.requiredSightedTime = 0.5; // s, per GAME_SPEC.md section 5
+    this.facingThreshold = 0.26; // ~15 degrees, radians
   }
 
-  // Re-decides movement/firing intent roughly every reactionInterval
-  // seconds; in between, it keeps repeating its last decision (this
-  // "sluggishness" is the ~0.8s reaction delay from the spec).
   update(dt, tank, target, maze) {
     this.reactionTimer -= dt;
     if (this.reactionTimer <= 0) {
       this.reactionTimer = this.reactionInterval;
-      this._decide(tank, target, maze);
+      this._retarget(tank, target, maze);
     }
+
+    this._updateMovement(dt, tank, maze);
+    this._updateFiring(dt, tank, target, maze);
+
     return { keys: this.keys, wantsToFire: this.wantsToFire };
   }
 
-  _decide(tank, target, maze) {
-    this.keys = { w: false, a: false, s: false, d: false };
-
-    if (this._isPathBlocked(tank, maze)) {
-      // Basic wall-avoidance overrides seeking the player: turn instead
-      // of driving into what's ahead.
-      this.keys[Math.random() < 0.5 ? 'a' : 'd'] = true;
+  // Decides WHAT to steer toward: the player directly if there's a clear
+  // line to them, otherwise the next waypoint on a pathfound route.
+  _retarget(tank, target, maze) {
+    if (this._hasLineOfSight(tank, target, maze)) {
+      this.waypointCell = null; // forget any stale plan; re-plan fresh next time it's needed
+      this.steerPoint = { x: target.x, y: target.y };
     } else {
-      // Casually approach the player: turn toward their direction (or,
-      // if they're not directly reachable, toward the next waypoint on a
-      // pathfound route) while still driving forward, rather than
-      // stopping to aim first.
-      let steerTarget = target;
-      if (this._hasLineOfSight(tank, target, maze)) {
-        this.waypointCell = null; // forget any stale plan; re-plan fresh next time it's needed
-      } else {
-        steerTarget = this._nextWaypoint(tank, target, maze) || target;
+      this.steerPoint = this._nextWaypoint(tank, target, maze) || { x: target.x, y: target.y };
+    }
+  }
+
+  // Executes the current steering point via a stop/turn/try/reverse state
+  // machine, reacting to obstacles immediately rather than on the
+  // reaction-tick cadence.
+  _updateMovement(dt, tank, maze) {
+    this.stateTimer += dt;
+
+    const steerAngle = Math.atan2(this.steerPoint.y - tank.y, this.steerPoint.x - tank.x);
+    const angleDiff = EasyAI._normalizeAngle(steerAngle - tank.angle);
+    const turnDeadzone = 0.15; // radians, avoids jitter when nearly aligned already
+
+    if (this.moveState === 'seek') {
+      if (this._isPathBlocked(tank, maze)) {
+        this.moveState = 'blockedTurn';
+        this.turnDirection = angleDiff >= 0 ? 'd' : 'a'; // bias toward where it actually wants to go
+        this.stateTimer = 0;
+        this.keys = { w: false, a: false, s: false, d: false };
+        this.keys[this.turnDirection] = true;
+        return;
       }
 
-      const angleToTarget = Math.atan2(steerTarget.y - tank.y, steerTarget.x - tank.x);
-      const angleDiff = EasyAI._normalizeAngle(angleToTarget - tank.angle);
-      const turnDeadzone = 0.15; // radians, avoids jitter when nearly aligned already
-
+      this.keys = { w: true, a: false, s: false, d: false };
       if (angleDiff > turnDeadzone) this.keys.d = true;
       else if (angleDiff < -turnDeadzone) this.keys.a = true;
-
-      this.keys.w = true;
+      return;
     }
 
-    this.wantsToFire = this._decideFire(tank, target, maze);
+    if (this.moveState === 'blockedTurn') {
+      this.keys = { w: false, a: false, s: false, d: false };
+      this.keys[this.turnDirection] = true;
+
+      if (!this._isPathBlocked(tank, maze) || this.stateTimer >= this.blockedTurnTimeout) {
+        this.moveState = 'attempting';
+        this.stateTimer = 0;
+      }
+      return;
+    }
+
+    if (this.moveState === 'attempting') {
+      if (this._isPathBlocked(tank, maze)) {
+        this.moveState = 'reversing';
+        this.stateTimer = 0;
+        this.keys = { w: false, a: false, s: true, d: false };
+        return;
+      }
+
+      this.keys = { w: true, a: false, s: false, d: false };
+      if (this.stateTimer >= this.attemptDuration) {
+        this.moveState = 'seek';
+        this.stateTimer = 0;
+      }
+      return;
+    }
+
+    // 'reversing'
+    this.keys = { w: false, a: false, s: true, d: false };
+    if (this.stateTimer >= this.reverseDuration) {
+      this.moveState = 'blockedTurn';
+      this.turnDirection = this.turnDirection === 'a' ? 'd' : 'a'; // alternate: try the other way this time
+      this.stateTimer = 0;
+    }
+  }
+
+  // Fires reliably once the player has been continuously aimed-at and
+  // directly visible for requiredSightedTime — not a random chance, so it
+  // doesn't sit on a sighted player waiting for a lucky roll. Resets the
+  // instant that stops being true (player breaks line of sight, or the
+  // AI turns away), so it never fires blind.
+  _updateFiring(dt, tank, target, maze) {
+    if (target.destroyed) {
+      this.sightedTime = 0;
+      this.wantsToFire = false;
+      return;
+    }
+
+    const angleToTarget = Math.atan2(target.y - tank.y, target.x - tank.x);
+    const angleDiff = Math.abs(EasyAI._normalizeAngle(angleToTarget - tank.angle));
+    const aimedAndVisible =
+      angleDiff <= this.facingThreshold && this._hasLineOfSight(tank, target, maze) && !maze.isBarrelBlocked(tank);
+
+    this.sightedTime = aimedAndVisible ? this.sightedTime + dt : 0;
+    this.wantsToFire = aimedAndVisible && this.sightedTime >= this.requiredSightedTime;
   }
 
   // The world-space center of the next cell along a BFS-shortest path
@@ -92,29 +181,22 @@ class EasyAI {
     return this.waypointCell ? maze._cellCenter(this.waypointCell.row, this.waypointCell.col) : null;
   }
 
+  // Whether something is blocking the tank's path forward. Uses a small
+  // rectangular sensor spanning a stretch of ground ahead (rather than a
+  // single point at one fixed distance) so a thin wall can't be missed
+  // just because it happens to fall between sample points.
   _isPathBlocked(tank, maze) {
-    const lookahead = tank.radius + 20; // px ahead of tank center
-    const probeX = tank.x + Math.cos(tank.angle) * lookahead;
-    const probeY = tank.y + Math.sin(tank.angle) * lookahead;
-    return maze.wallRects.some(
-      (wall) => probeX >= wall.left && probeX <= wall.right && probeY >= wall.top && probeY <= wall.bottom
-    );
-  }
+    const sensorLength = 24; // px of ground ahead the sensor covers
+    const sensorCenterDist = tank.radius + sensorLength / 2;
+    const sensor = {
+      cx: tank.x + Math.cos(tank.angle) * sensorCenterDist,
+      cy: tank.y + Math.sin(tank.angle) * sensorCenterDist,
+      halfW: sensorLength / 2,
+      halfH: tank.radius * 0.6, // narrower than the full body, just checks roughly straight ahead
+      angle: tank.angle
+    };
 
-  _decideFire(tank, target, maze) {
-    if (target.destroyed) return false;
-
-    const angleToTarget = Math.atan2(target.y - tank.y, target.x - tank.x);
-    const angleDiff = Math.abs(EasyAI._normalizeAngle(angleToTarget - tank.angle));
-    const facingThreshold = 0.26; // ~15 degrees, radians
-
-    // Only ever considers firing when roughly lined up on a direct shot...
-    if (angleDiff > facingThreshold) return false;
-    // ...AND nothing is actually in the way along that line (no bank shots).
-    if (!this._hasLineOfSight(tank, target, maze)) return false;
-    if (maze.isBarrelBlocked(tank)) return false;
-
-    return Math.random() < 0.5; // ~50% accuracy: only pulls the trigger about half the time
+    return maze.wallRects.some((wall) => Maze._satOverlap(sensor, Maze._wallShape(wall)));
   }
 
   _hasLineOfSight(tank, target, maze) {
