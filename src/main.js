@@ -2,10 +2,12 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 const maze = new Maze(8, 6, 80); // 8*80=640, 6*80=480, matches the canvas size
-const spawnPoints = maze.getSpawnPoints(2); // only spawnPoints[0] is used until an AI tank exists
+const spawnPoints = maze.getSpawnPoints(2);
 
-const playerTank = new Tank(spawnPoints[0].x, spawnPoints[0].y, '#3b6ea5');
-const tanks = [playerTank];
+const playerTank = new Tank(spawnPoints[0].x, spawnPoints[0].y, '#3b6ea5'); // blue, per GAME_SPEC.md section 2
+const aiTank = new Tank(spawnPoints[1].x, spawnPoints[1].y, '#a53b3b'); // red, per GAME_SPEC.md section 2
+const easyAI = new EasyAI();
+const tanks = [playerTank, aiTank];
 let bullets = [];
 
 function activeBulletCount(tank) {
@@ -23,6 +25,17 @@ startLoop(
       } else if (activeBulletCount(playerTank) < playerTank.maxActiveBullets) {
         const tip = playerTank.getBarrelTip();
         bullets.push(new Bullet(tip.x, tip.y, playerTank.angle, playerTank));
+      }
+    }
+
+    if (!aiTank.destroyed) {
+      const decision = easyAI.update(dt, aiTank, playerTank, maze);
+      aiTank.update(dt, decision.keys);
+      maze.resolveTankCollision(aiTank);
+
+      if (decision.wantsToFire && !maze.isBarrelBlocked(aiTank) && activeBulletCount(aiTank) < aiTank.maxActiveBullets) {
+        const tip = aiTank.getBarrelTip();
+        bullets.push(new Bullet(tip.x, tip.y, aiTank.angle, aiTank));
       }
     }
 
