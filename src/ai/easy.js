@@ -1,6 +1,7 @@
-// Easy-tier AI, per GAME_SPEC.md section 5: semi-random movement with
-// basic wall-avoidance, ~0.8s reaction delay, ~50% shot accuracy, no
-// intentional bank shots.
+// Easy-tier AI, per GAME_SPEC.md section 5: casually approaches the
+// player with basic wall-avoidance, ~0.8s reaction delay, ~50% shot
+// accuracy, and only ever fires when it has a direct, unobstructed line
+// of sight to the player (no bank shots).
 //
 // update() produces the same {w,a,s,d} shape Input.keys already produces
 // for the human player, plus a wantsToFire flag — so main.js can drive
@@ -30,18 +31,20 @@ class EasyAI {
     this.keys = { w: false, a: false, s: false, d: false };
 
     if (this._isPathBlocked(tank, maze)) {
-      // Basic wall-avoidance: turn instead of driving into it.
+      // Basic wall-avoidance overrides seeking the player: turn instead
+      // of driving into what's ahead.
       this.keys[Math.random() < 0.5 ? 'a' : 'd'] = true;
     } else {
-      const roll = Math.random();
-      if (roll < 0.6) {
-        this.keys.w = true; // mostly drive forward
-      } else if (roll < 0.85) {
-        this.keys.w = true;
-        this.keys[Math.random() < 0.5 ? 'a' : 'd'] = true; // forward while turning
-      } else {
-        this.keys[Math.random() < 0.5 ? 'a' : 'd'] = true; // turn in place
-      }
+      // Casually approach the player: turn toward their direction while
+      // still driving forward, rather than stopping to aim first.
+      const angleToTarget = Math.atan2(target.y - tank.y, target.x - tank.x);
+      const angleDiff = EasyAI._normalizeAngle(angleToTarget - tank.angle);
+      const turnDeadzone = 0.15; // radians, avoids jitter when nearly aligned already
+
+      if (angleDiff > turnDeadzone) this.keys.d = true;
+      else if (angleDiff < -turnDeadzone) this.keys.a = true;
+
+      this.keys.w = true;
     }
 
     this.wantsToFire = this._decideFire(tank, target, maze);
@@ -63,12 +66,50 @@ class EasyAI {
     const angleDiff = Math.abs(EasyAI._normalizeAngle(angleToTarget - tank.angle));
     const facingThreshold = 0.26; // ~15 degrees, radians
 
-    // No bank shots: only ever considers firing when roughly lined up on
-    // a direct shot, never aims for a wall-bounce trick shot.
+    // Only ever considers firing when roughly lined up on a direct shot...
     if (angleDiff > facingThreshold) return false;
+    // ...AND nothing is actually in the way along that line (no bank shots).
+    if (!this._hasLineOfSight(tank, target, maze)) return false;
     if (maze.isBarrelBlocked(tank)) return false;
 
     return Math.random() < 0.5; // ~50% accuracy: only pulls the trigger about half the time
+  }
+
+  _hasLineOfSight(tank, target, maze) {
+    for (const wall of maze.wallRects) {
+      if (EasyAI._segmentIntersectsRect(tank.x, tank.y, target.x, target.y, wall)) return false;
+    }
+    return true;
+  }
+
+  // Standard slab-based segment-vs-axis-aligned-rectangle intersection
+  // test: clips the parametric segment [0,1] against the rect's x and y
+  // slabs; if any valid t-range survives, the segment passes through it.
+  static _segmentIntersectsRect(x1, y1, x2, y2, rect) {
+    let tMin = 0;
+    let tMax = 1;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    const axes = [
+      { d: dx, p1: x1, lo: rect.left, hi: rect.right },
+      { d: dy, p1: y1, lo: rect.top, hi: rect.bottom }
+    ];
+
+    for (const axis of axes) {
+      if (axis.d === 0) {
+        if (axis.p1 < axis.lo || axis.p1 > axis.hi) return false;
+        continue;
+      }
+      let t0 = (axis.lo - axis.p1) / axis.d;
+      let t1 = (axis.hi - axis.p1) / axis.d;
+      if (t0 > t1) [t0, t1] = [t1, t0];
+      tMin = Math.max(tMin, t0);
+      tMax = Math.min(tMax, t1);
+      if (tMin > tMax) return false;
+    }
+
+    return true;
   }
 
   static _normalizeAngle(angle) {

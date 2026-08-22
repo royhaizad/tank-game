@@ -84,7 +84,7 @@ Selected on a pre-match screen (Easy / Medium / Hard).
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
-| **Easy** | Semi-random, basic wall-avoidance | ~50% | None | ~0.8s | Ignores ~half the time |
+| **Easy** | Casually approaches the player, basic wall-avoidance | ~50% | None (direct line of sight only) | ~0.8s | Ignores ~half the time |
 | **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
 | **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
 
