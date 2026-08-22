@@ -44,9 +44,10 @@ cannot pass through either.
 - Bullets expire after 6 seconds OR 5 wall bounces, whichever comes first.
 - A bullet destroys any tank it touches, including the tank that fired it.
   Self-kill via your own ricochet is intentional.
-- Base cannon: up to 5 bullets in flight per tank at once, fired one at a
+- Base cannon (player): up to 5 bullets in flight at once, fired one at a
   time (one bullet per Spacebar press, not full-auto). No cooldown between
-  shots — firing rate is limited only by the 5-bullet cap.
+  shots — firing rate is limited only by the 5-bullet cap. AI opponents
+  use a stricter limit instead — see section 5.
 
 ### 3.3 Maze Generation
 New random maze every match, using grid-based generation (recursive
@@ -93,6 +94,11 @@ on a wall with no route to the player), so "pathfinding" no longer distinguishes
 Medium/Hard from Easy. When Medium is built, it needs a different defining trait
 than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
 aiming, or actually using bank shots — to stay meaningfully harder than Easy.
+
+**Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
+cooldown after it's gone before firing again — stricter than the player's 5-bullet,
+no-cooldown base cannon from section 3.2. Keeps the AI from flooding the maze with
+bullets at close range.
 
 ---
 

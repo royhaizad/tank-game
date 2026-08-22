@@ -21,8 +21,14 @@ class Tank {
 
     this.barrelLength = this.radius + 12; // px, from tank center to barrel tip
     this.barrelHalfHeight = 3; // px, half the barrel's drawn width
-    this.maxActiveBullets = 5; // per GAME_SPEC.md section 3.2
+    this.maxActiveBullets = 5; // per GAME_SPEC.md section 3.2 (player default; AI tanks override this)
+    this.fireCooldownDuration = 0; // s, 0 = no cooldown (player default; AI tanks override this)
+    this.cooldownRemaining = 0; // s, must reach 0 before firing again
     this.destroyed = false;
+  }
+
+  canFire(activeBulletCount) {
+    return activeBulletCount < this.maxActiveBullets && this.cooldownRemaining <= 0;
   }
 
   getBarrelTip() {
@@ -52,6 +58,10 @@ class Tank {
   }
 
   update(dt, keys) {
+    if (this.cooldownRemaining > 0) {
+      this.cooldownRemaining = Math.max(0, this.cooldownRemaining - dt);
+    }
+
     if (keys['w']) {
       this.speed += this.acceleration * dt;
     } else if (keys['s']) {

@@ -6,6 +6,8 @@ const spawnPoints = maze.getSpawnPoints(2);
 
 const playerTank = new Tank(spawnPoints[0].x, spawnPoints[0].y, '#3b6ea5'); // blue, per GAME_SPEC.md section 2
 const aiTank = new Tank(spawnPoints[1].x, spawnPoints[1].y, '#a53b3b'); // red, per GAME_SPEC.md section 2
+aiTank.maxActiveBullets = 1; // AI ammo override, per GAME_SPEC.md section 5
+aiTank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
 const easyAI = new EasyAI();
 const tanks = [playerTank, aiTank];
 let bullets = [];
@@ -22,9 +24,10 @@ startLoop(
     if (Input.justPressed[' ']) {
       if (maze.isBarrelBlocked(playerTank)) {
         AudioEngine.playEmptyFireClick();
-      } else if (activeBulletCount(playerTank) < playerTank.maxActiveBullets) {
+      } else if (playerTank.canFire(activeBulletCount(playerTank))) {
         const tip = playerTank.getBarrelTip();
         bullets.push(new Bullet(tip.x, tip.y, playerTank.angle, playerTank));
+        playerTank.cooldownRemaining = playerTank.fireCooldownDuration;
       }
     }
 
@@ -33,9 +36,10 @@ startLoop(
       aiTank.update(dt, decision.keys);
       maze.resolveTankCollision(aiTank);
 
-      if (decision.wantsToFire && !maze.isBarrelBlocked(aiTank) && activeBulletCount(aiTank) < aiTank.maxActiveBullets) {
+      if (decision.wantsToFire && !maze.isBarrelBlocked(aiTank) && aiTank.canFire(activeBulletCount(aiTank))) {
         const tip = aiTank.getBarrelTip();
         bullets.push(new Bullet(tip.x, tip.y, aiTank.angle, aiTank));
+        aiTank.cooldownRemaining = aiTank.fireCooldownDuration;
       }
     }
 
