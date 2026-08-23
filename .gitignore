@@ -7,4 +7,6 @@ Thumbs.db
 .idea/
 
 # Claude Code local session data / local dev tooling
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
