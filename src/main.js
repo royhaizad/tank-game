@@ -20,6 +20,8 @@ let awaitingRebind = null; // { playerIndex, action } while waiting for a keypre
 
 let maze, matchTanks, bullets;
 
+const PLAYER_AUTO_FIRE_INTERVAL = 0.5; // s, between auto-fired shots while the fire key is held
+
 function activeBulletCount(tank) {
   return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
 }
@@ -35,7 +37,7 @@ function startMatch() {
   for (let i = 0; i < config.playerCount; i++) {
     const spawn = spawnPoints[spawnIndex++];
     const tank = new Tank(spawn.x, spawn.y, Menu.PLAYER_COLORS[i]);
-    matchTanks.push({ tank, kind: 'player', label: `P${i + 1}`, playerIndex: i });
+    matchTanks.push({ tank, kind: 'player', label: `P${i + 1}`, playerIndex: i, autoFireTimer: 0 });
   }
 
   for (let i = 0; i < config.aiCount; i++) {
@@ -79,6 +81,19 @@ function updateMatch(dt) {
         } else {
           fireIfPossible(entry.tank, entry.tank);
         }
+        entry.autoFireTimer = PLAYER_AUTO_FIRE_INTERVAL;
+      } else if (Input.keys[bindings.fire]) {
+        entry.autoFireTimer -= dt;
+        if (entry.autoFireTimer <= 0) {
+          if (maze.isBarrelBlocked(entry.tank)) {
+            AudioEngine.playEmptyFireClick();
+          } else {
+            fireIfPossible(entry.tank, entry.tank);
+          }
+          entry.autoFireTimer = PLAYER_AUTO_FIRE_INTERVAL;
+        }
+      } else {
+        entry.autoFireTimer = 0;
       }
     } else {
       const opponents = matchTanks.filter((other) => other !== entry).map((other) => other.tank);

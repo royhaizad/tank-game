@@ -32,12 +32,13 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
 
 Both branch off `main`. They touch different files, so they can't conflict.
 
-### Session A — `chore/bullet-tuning`
-Tune existing bullet values only, no new mechanics. Current values in
-`src/entities/bullet.js`: speed 320 px/s, radius 3px, maxLifetime 6s, maxBounces 5.
-Per-tank fire limits live in `src/entities/tank.js` (player: 5 in flight, no cooldown;
-AI overridden in `src/main.js` to 1 + 1s cooldown). Update GAME_SPEC.md section 3.2 if
-any spec'd number changes.
+### Session A — `chore/bullet-tuning` (done, pending merge to `main`)
+Tuned bullet speed and added player auto-fire. New values in
+`src/entities/bullet.js`: speed 160 px/s (was 320), radius 3px, maxLifetime 6s,
+maxBounces 5 unchanged. Player fire (`src/main.js`): tap still fires instantly;
+holding the fire key now auto-fires every 0.5s (`PLAYER_AUTO_FIRE_INTERVAL`),
+still capped at 5 bullets in flight. AI unchanged (1 in flight + 1s cooldown,
+overridden in `src/main.js`). GAME_SPEC.md section 3.2 updated to match.
 
 ### Session B — `feat/session-stats`
 Kill / Death / Win counters per tank, accumulating across matches.

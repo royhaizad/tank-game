@@ -46,10 +46,18 @@ the field — cannot pass through any of them.
 - Bullets expire after 6 seconds OR 5 wall bounces, whichever comes first.
 - A bullet destroys any tank it touches, including the tank that fired it.
   Self-kill via your own ricochet is intentional.
-- Base cannon (player): up to 5 bullets in flight at once, fired one at a
-  time (one bullet per Spacebar press, not full-auto). No cooldown between
-  shots — firing rate is limited only by the 5-bullet cap. AI opponents
-  use a stricter limit instead — see section 5.
+- Base cannon (player): up to 5 bullets in flight at once. A tap of the
+  fire key (Spacebar by default) fires instantly, one bullet at a time.
+  Holding the fire key down auto-fires a new bullet every 0.5s for as
+  long as it's held (and the 5-bullet cap allows it) — releasing and
+  re-tapping always fires instantly again, the 0.5s pacing only applies
+  between repeat shots while held. Firing is also capped by the 5-bullet
+  cap regardless of tap or hold. AI opponents use a stricter limit
+  instead — see section 5.
+- Bullet speed is 160 px/s — noticeably faster than a tank's own top
+  forward speed (140 px/s) so it can't be outrun, but slow enough to be
+  visually trackable and reactable to (previously 320 px/s, which felt
+  too fast to react to).
 
 ### 3.3 Maze Generation
 New random maze every match, using grid-based generation (recursive

@@ -9,7 +9,7 @@ class Bullet {
     this.angle = angle;
     this.owner = owner;
 
-    this.speed = 320; // px/s
+    this.speed = 160; // px/s, ~15% faster than tank top forward speed (140 px/s)
     this.radius = 3; // px
 
     this.lifetime = 0; // s elapsed
