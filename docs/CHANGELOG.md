@@ -2,6 +2,7 @@
 
 One-line entries per game mechanic/feature change, newest first. See `CLAUDE.md`
 "Keeping Docs in Sync" for when to add to this file.
+- 2026-08-23 — Merged all feature branches into main: main is now current and playable (movement, bullets, maze, Easy AI, menus, local multiplayer).
 
 - 2026-08-19 — CLAUDE.md updated with "Keeping Docs in Sync" workflow rules (docs/GAME_SPEC.md, this changelog, and CLAUDE.md itself must be kept current with mechanic changes).
 - 2026-08-19 — Base cannon now allows up to 5 bullets in flight per tank at once, with no cooldown between shots (previously: 1 bullet in flight + ~1s cooldown).

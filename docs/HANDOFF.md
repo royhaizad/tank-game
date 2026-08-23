@@ -5,46 +5,62 @@ is the single source of truth for design; this file is just "where we are right 
 
 ## Branch state
 
-All branches are pushed to GitHub. **Nothing is merged into `main` yet** — `main` is
-still only the initial skeleton commit. Branches stack in this order, each off the last:
+**`main` is current and playable** — all feature work through local multiplayer has been
+merged in. Old feature branches (`feat/tank-movement`, `feat/bullet-physics`,
+`feat/maze-generation`, `feat/ai-easy`, `feat/multiplayer`,
+`chore/claude-md-docsync-rules`) are fully merged and can be ignored or deleted.
 
-```
-main
-└── feat/tank-movement      WASD tank-drive, accel/decel, +20% brake
-    └── feat/bullet-physics bouncing bullets, 5-in-flight, no cooldown
-        └── feat/maze-generation  random maze, rect wall collision (SAT), barrel-blocked fire
-            └── feat/ai-easy      Easy AI: BFS pathfinding, 1 bullet/1s cooldown
-                └── feat/menus    Title/Difficulty/Result screens, pause menu, key rebinding
-                    └── feat/multiplayer  ← current branch (dc9e910)
-```
+**Branch new work off `main`.** Do not stack branches on each other — that's what led to
+a 6-deep unmerged stack before. Merge back to `main` after testing in the browser.
 
-Also pushed, unmerged, and independent: `chore/claude-md-docsync-rules` (the doc-sync
-rules now in CLAUDE.md + backfilled `docs/CHANGELOG.md`).
-
-## What's built (all in `feat/multiplayer`)
+## What's built
 
 - **Movement/bullets/maze**: tank-drive movement; bullets bounce off walls (mirror
   angle) and expire at 6s or 5 bounces; random 8x6 maze, 80px cells, 6px walls;
   SAT-based rotated-rect collision for tank body *and* barrel separately.
-- **Easy AI** (`src/ai/easy.js`): always navigates by BFS pathfinding waypoints (never
-  raw line-of-sight — that caused dead-end sticking); stop/turn/try/reverse obstacle
-  state machine reacting every frame; fires after 0.5s continuous line-of-sight;
-  limited to 1 bullet + 1s cooldown.
-- **Multiplayer** (newest): Mission Briefing screen (1-3 players, 0-3 AI, per-AI
-  difficulty, inline per-player key rebinding); free-for-all (any bullet hurts any
-  tank); last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
+- **Easy AI** (`src/ai/easy.js`): navigates by BFS pathfinding waypoints (never raw
+  line-of-sight — that caused dead-end sticking); stop/turn/try/reverse obstacle state
+  machine reacting every frame; fires after 0.5s continuous line-of-sight; limited to
+  1 bullet + 1s cooldown.
+- **Multiplayer**: Mission Briefing screen (1-3 players, 0-3 AI, per-AI difficulty,
+  inline per-player key rebinding); free-for-all (any bullet hurts any tank);
+  last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
+- **Menus**: Title, Mission Briefing, Result, pause menu (Esc) with Y/N confirmations
+  and full key rebinding.
 
-## Known gaps / next steps
+## Planned next — two independent sessions
 
-Per `GAME_SPEC.md` section 12 (build priority), remaining: **Medium + Hard AI** (#4),
-**power-ups** (#5), **pixel art pass** (#7), **audio pass** (#8).
+Both branch off `main`. They touch different files, so they can't conflict.
 
-- **Medium/Hard AI don't exist.** They're shown but disabled ("Coming soon") in the
-  UI. GAME_SPEC.md section 5 flags that "pathfinding when out of sight" no longer
-  distinguishes them from Easy — they need a *new* defining trait (predictive aiming,
-  bank shots, faster paths) before being built.
-- `assets/sprites/` (22 files) is untracked on purpose — no code references sprites
-  yet; that's the pixel-art pass, still ahead.
+### Session A — `chore/bullet-tuning`
+Tune existing bullet values only, no new mechanics. Current values in
+`src/entities/bullet.js`: speed 320 px/s, radius 3px, maxLifetime 6s, maxBounces 5.
+Per-tank fire limits live in `src/entities/tank.js` (player: 5 in flight, no cooldown;
+AI overridden in `src/main.js` to 1 + 1s cooldown). Update GAME_SPEC.md section 3.2 if
+any spec'd number changes.
+
+### Session B — `feat/session-stats`
+Kill / Death / Win counters per tank, accumulating across matches.
+Decisions already made:
+- **Scope**: these are *in-session tallies*, NOT a ranking system. GAME_SPEC.md line
+  ~238 ("No scoring/rounds system in v1") must be reversed to allow this; the
+  "Ranking/rank-points system" exclusion in section 11 **stays** out of scope.
+- **Reset**: only an explicit Reset button clears the tally. Stats survive Rematch,
+  Change Difficulty, *and* Back to Title. Page refresh clears them (no persistence —
+  no localStorage, per the no-backend/no-saves rule).
+- **Surfaces**: affects both multiplayer scoring and the GUI (HUD `src/ui/hud.js`
+  and/or Result screen `src/ui/menu.js`).
+
+## Known gaps
+
+Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **power-ups** (#5),
+**pixel art pass** (#7), **audio pass** (#8) all remain.
+
+- **Medium/Hard AI don't exist** — shown but disabled ("Coming soon") in the UI.
+  GAME_SPEC.md section 5 flags they need a *new* defining trait (predictive aiming,
+  bank shots, faster paths), since "pathfinding when out of sight" no longer separates
+  them from Easy.
+- `assets/sprites/` (22 files) is untracked on purpose — no code references sprites yet.
 - Only synthesized audio exists (`src/engine/audio.js`, empty-fire click via Web Audio).
 
 ## Gotchas worth knowing
