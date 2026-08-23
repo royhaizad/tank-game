@@ -1,16 +1,32 @@
 // Easy-tier AI, per GAME_SPEC.md section 5.
 //
-// Movement is a small state machine that reacts to obstacles every frame
-// (stop -> turn -> try the new heading -> reverse-and-retry if that also
-// fails), rather than blindly holding forward while steering. Which point
-// it steers toward (the player directly, or a pathfound waypoint when out
-// of sight) is only reconsidered every ~0.8s reaction tick — that's the
-// "casual" part; obstacle response itself is immediate so it doesn't lean
-// on walls waiting for its next reaction tick.
+// Movement is "hallway driving": the pathfound route is compressed into
+// long straight runs (see _nextWaypoint) so the AI commits to one heading
+// down a whole corridor instead of re-aiming at every single maze cell —
+// that per-cell re-aiming was reading as a zigzag. It only actually turns
+// at real corners/junctions, and does so as a deliberate stop-and-pivot
+// (the 'cornerTurn' state) rather than swinging through the turn while
+// still moving, which was clipping the inside corner. Reactive obstacle
+// avoidance (stop -> turn -> try -> reverse-and-retry) still reacts every
+// frame on top of this for anything the planned route didn't anticipate
+// (another tank in the way, a sensor catching a wall early). Which
+// waypoint to steer toward is refreshed every frame (cheap: it only
+// recomputes the BFS path when the route actually needs to change); only
+// which opponent to target stays on the ~0.8s reaction cadence — that's
+// the "casual" part.
 //
-// Firing fires reliably (no random chance) once the player has been
-// continuously aimed-at and directly visible for 0.5s, and only ever
-// while that line of sight stays clear (no bank shots).
+// Firing fires reliably (no random chance) the instant the player is
+// aimed-at and directly visible (0s delay), and only ever while that line
+// of sight stays clear (no bank shots).
+//
+// Reactive obstacle handling turns to align *parallel* with whichever wall
+// it hit, picking the parallel direction (of the two) that's closer to the
+// waypoint it's trying to reach, then drives forward hugging that wall —
+// closer to how Tank Trouble's "Laika" AI reads (A*-driven, discrete
+// behaviors, no full random flailing) than a fixed-duration blind turn. If
+// it still can't get through after a few blocked/reverse cycles in a row
+// (a real loop, e.g. a pocket the waypoint can't actually reach this way),
+// it forces a fresh path replan rather than retrying forever.
 //
 // update() produces the same { forward, backward, left, right } action
 // shape Tank.update() expects from a human player (see Input.playerBindings
@@ -30,48 +46,76 @@ class EasyAI {
     // or immediately if the current target is destroyed.
     this.target = null;
 
-    // Where to steer toward — the target directly, or a pathfound
-    // waypoint — refreshed every reaction tick by _retarget().
+    // Where to steer toward — the target directly, or the far end of the
+    // current straight pathfound run — refreshed every frame by
+    // _nextWaypoint() (see update()).
     this.steerPoint = null;
 
     // Movement state machine.
-    this.moveState = 'seek'; // 'seek' | 'blockedTurn' | 'attempting' | 'reversing'
+    this.moveState = 'seek'; // 'seek' | 'cornerTurn' | 'blockedTurn' | 'attempting' | 'reversing'
     this.turnDirection = 'left';
+    this.targetHeading = 0; // rad, the heading blockedTurn/cornerTurn is turning toward
     this.stateTimer = 0;
     this.blockedTurnTimeout = 1.2; // s, safety cap so it can't spin in place forever
     this.attemptDuration = 0.5; // s, how long it tries the new heading before giving up
-    this.reverseDuration = 0.5; // s, how long it backs up before retrying
+    this.baseReverseDuration = 0.5; // s, how long it backs up before retrying
+    this.reverseDuration = this.baseReverseDuration;
+    this.alignThreshold = 0.12; // rad, how close to targetHeading counts as "aligned"
+
+    // A deliberate stop-and-pivot triggered proactively when a fresh
+    // waypoint requires a sharp heading change (a real corner), rather
+    // than swinging through the turn while still driving forward — that
+    // car-style cornering was clipping the inside wall of tight corridors.
+    this.cornerTurnThreshold = 0.6; // rad (~34deg): bigger than this -> pivot in place first
+    this.cornerTurnTimeout = 1.0; // s, safety cap
+    this.pendingCornerHeading = null; // set by _nextWaypoint when a new run starts
+
+    // Stuck detection: counts consecutive blocked/reverse cycles without a
+    // real stretch of unobstructed forward progress in between. If it hits
+    // the limit, the current waypoint is probably not actually reachable
+    // this way (e.g. a pocket), so force a fresh path replan instead of
+    // retrying the same turn/reverse dance forever.
+    this.seekTimer = 0;
+    this.stuckCycles = 0;
+    this.stuckCycleLimit = 2;
+    this.forceAlternateTurn = false; // flips the wall-heading tie-break once after a forced replan, so a symmetric pocket doesn't just repeat the same losing turn
 
     // Pathfinding.
-    this.waypointCell = null; // cell currently being steered toward, when pathfinding
+    this.waypointCell = null; // far end of the current straight run being steered toward
     this.pathTargetCell = null; // the target's cell the current path was planned for
+    this.currentPath = null; // full BFS path the current waypointCell was chosen from, for validity checks
 
     // Firing.
     this.sightedTime = 0; // s, how long the player has been continuously aimed-at + visible
-    this.requiredSightedTime = 0.5; // s, per GAME_SPEC.md section 5
+    this.requiredSightedTime = 0; // s, fires instantly once aimed-at + visible (no delay)
     this.facingThreshold = 0.26; // ~15 degrees, radians
   }
 
   // `opponents`: every other tank in the match (living or destroyed —
   // this filters for itself). FFA per GAME_SPEC.md section 5: targets
   // whichever is nearest by path distance, player or AI alike.
+  //
+  // Which opponent to target stays on the ~0.8s reaction cadence (the
+  // "casual" trait). Which waypoint to steer toward is refreshed every
+  // frame regardless — it's a cheap cell comparison that only recomputes
+  // the actual BFS path when the route needs to change (see
+  // _nextWaypoint), so this doesn't reintroduce per-tick flip-flopping;
+  // it just means a corner or a newly-unreachable waypoint gets noticed
+  // the instant it happens instead of up to 0.8s late.
   update(dt, tank, opponents, maze) {
     if (!this.target || this.target.destroyed) {
       this.target = this._nearestOpponent(tank, opponents, maze);
-      if (this.target) this._retarget(tank, this.target, maze);
     }
 
     this.reactionTimer -= dt;
     if (this.reactionTimer <= 0) {
       this.reactionTimer = this.reactionInterval;
       const nearest = this._nearestOpponent(tank, opponents, maze);
-      if (nearest) {
-        this.target = nearest;
-        this._retarget(tank, this.target, maze);
-      }
+      if (nearest) this.target = nearest;
     }
 
     if (this.target) {
+      this.steerPoint = this._nextWaypoint(tank, this.target, maze) || { x: this.target.x, y: this.target.y };
       this._updateMovement(dt, tank, maze);
       this._updateFiring(dt, tank, this.target, maze);
     } else {
@@ -106,30 +150,47 @@ class EasyAI {
     return nearest || alive[0];
   }
 
-  // Decides WHAT to steer toward: always the next waypoint on a pathfound
-  // route through the maze grid, never a raw straight line to the target.
-  // A raw line can look clear (a thin sightline through a gap, or across
-  // a dead-end alcove) while no walkable path actually follows it — that
-  // mismatch is what drove the AI into dead ends before. Line of sight is
-  // still used for firing (see _updateFiring), just never for movement.
-  _retarget(tank, target, maze) {
-    this.steerPoint = this._nextWaypoint(tank, target, maze) || { x: target.x, y: target.y };
-  }
-
   // Executes the current steering point via a stop/turn/try/reverse state
   // machine, reacting to obstacles immediately rather than on the
-  // reaction-tick cadence.
+  // reaction-tick cadence. The turn itself aligns parallel to whichever
+  // wall it hit (see _chooseTurn) rather than turning for a fixed
+  // duration, so it comes out of the turn already hugging the wall in the
+  // direction that's actually useful, instead of guessing.
   _updateMovement(dt, tank, maze) {
     this.stateTimer += dt;
 
     const steerAngle = Math.atan2(this.steerPoint.y - tank.y, this.steerPoint.x - tank.x);
     const angleDiff = EasyAI._normalizeAngle(steerAngle - tank.angle);
-    const turnDeadzone = 0.15; // radians, avoids jitter when nearly aligned already
+    // Tight on purpose: waypoints are now far down a straight corridor run
+    // (see _nextWaypoint), so even a small angleDiff means real lateral
+    // drift off the corridor centerline over that distance — a loose
+    // deadzone here was letting that drift go uncorrected long enough to
+    // graze the near wall.
+    const turnDeadzone = 0.03; // radians, avoids jitter when nearly aligned already
 
     if (this.moveState === 'seek') {
+      this.seekTimer += dt;
+      if (this.seekTimer > 0.4) this.stuckCycles = 0; // a real stretch of unobstructed progress -> not stuck
+
+      if (this.pendingCornerHeading !== null) {
+        // A fresh waypoint just started a new straight run that requires a
+        // real turn (see _nextWaypoint) -> stop and pivot cleanly instead
+        // of swinging through it while still driving forward, which was
+        // clipping the inside corner.
+        this.targetHeading = this.pendingCornerHeading;
+        this.pendingCornerHeading = null;
+        const rotDiff = EasyAI._normalizeAngle(this.targetHeading - tank.angle);
+        this.turnDirection = rotDiff >= 0 ? 'right' : 'left';
+        this.moveState = 'cornerTurn';
+        this.stateTimer = 0;
+        this.keys = { forward: false, backward: false, left: false, right: false };
+        this.keys[this.turnDirection] = true;
+        return;
+      }
+
       if (this._isPathBlocked(tank, maze)) {
+        this._chooseTurn(tank, maze);
         this.moveState = 'blockedTurn';
-        this.turnDirection = angleDiff >= 0 ? 'right' : 'left'; // bias toward where it actually wants to go
         this.stateTimer = 0;
         this.keys = { forward: false, backward: false, left: false, right: false };
         this.keys[this.turnDirection] = true;
@@ -142,11 +203,29 @@ class EasyAI {
       return;
     }
 
+    this.seekTimer = 0;
+
+    if (this.moveState === 'cornerTurn') {
+      this.keys = { forward: false, backward: false, left: false, right: false };
+      this.keys[this.turnDirection] = true;
+
+      const headingDiff = Math.abs(EasyAI._normalizeAngle(this.targetHeading - tank.angle));
+      if (headingDiff <= this.alignThreshold || this.stateTimer >= this.cornerTurnTimeout) {
+        this.moveState = 'seek';
+        this.stateTimer = 0;
+      }
+      return;
+    }
+
     if (this.moveState === 'blockedTurn') {
       this.keys = { forward: false, backward: false, left: false, right: false };
       this.keys[this.turnDirection] = true;
 
-      if (!this._isPathBlocked(tank, maze) || this.stateTimer >= this.blockedTurnTimeout) {
+      const headingDiff = Math.abs(EasyAI._normalizeAngle(this.targetHeading - tank.angle));
+      const aligned = headingDiff <= this.alignThreshold;
+      const cleared = !this._isPathBlocked(tank, maze);
+
+      if (aligned || cleared || this.stateTimer >= this.blockedTurnTimeout) {
         this.moveState = 'attempting';
         this.stateTimer = 0;
       }
@@ -155,6 +234,10 @@ class EasyAI {
 
     if (this.moveState === 'attempting') {
       if (this._isPathBlocked(tank, maze)) {
+        // Blocked again almost immediately after aligning -> this was a
+        // corner/dead-end, not a through-corridor. Back off and retry.
+        this.stuckCycles += 1;
+        this.reverseDuration = this.stuckCycles >= this.stuckCycleLimit ? this.baseReverseDuration * 2 : this.baseReverseDuration;
         this.moveState = 'reversing';
         this.stateTimer = 0;
         this.keys = { forward: false, backward: true, left: false, right: false };
@@ -172,10 +255,56 @@ class EasyAI {
     // 'reversing'
     this.keys = { forward: false, backward: true, left: false, right: false };
     if (this.stateTimer >= this.reverseDuration) {
+      if (this.stuckCycles >= this.stuckCycleLimit) {
+        // Several blocked/reverse cycles in a row without a real gap of
+        // seek progress -> the current waypoint likely isn't reachable
+        // this way. Force a fresh path plan instead of repeating the same
+        // turn/reverse dance forever.
+        this.stuckCycles = 0;
+        this.waypointCell = null;
+        this.forceAlternateTurn = true;
+      }
+      this._chooseTurn(tank, maze);
       this.moveState = 'blockedTurn';
-      this.turnDirection = this.turnDirection === 'left' ? 'right' : 'left'; // alternate: try the other way this time
       this.stateTimer = 0;
     }
+  }
+
+  // Picks which way to turn when blocked, and what heading to turn toward.
+  // If a wall is currently sensed, turns to align *parallel* to it —
+  // whichever of the wall's two parallel headings (walls here are always
+  // axis-aligned, see maze.js) is closer to the direction of the current
+  // waypoint, so the choice actually favors making progress rather than
+  // just picking a side. Falls back to aiming straight at the waypoint
+  // if no wall is currently sensed (e.g. right after reversing away from
+  // one).
+  _chooseTurn(tank, maze) {
+    const wall = this._sensedWall(tank, maze);
+    const steerAngle = Math.atan2(this.steerPoint.y - tank.y, this.steerPoint.x - tank.x);
+
+    let targetHeading = steerAngle;
+    if (wall) {
+      const [headingA, headingB] = EasyAI._wallParallelHeadings(wall);
+      const diffA = Math.abs(EasyAI._normalizeAngle(headingA - steerAngle));
+      const diffB = Math.abs(EasyAI._normalizeAngle(headingB - steerAngle));
+      const preferA = diffA <= diffB;
+      targetHeading = preferA !== this.forceAlternateTurn ? headingA : headingB;
+    }
+    this.forceAlternateTurn = false;
+
+    this.targetHeading = targetHeading;
+    const rotDiff = EasyAI._normalizeAngle(targetHeading - tank.angle);
+    this.turnDirection = rotDiff >= 0 ? 'right' : 'left';
+  }
+
+  // The two headings a tank could face to run parallel along a given
+  // wall (walls are always axis-aligned rects, see maze.js _buildWallRects
+  // / _wallShape). A wide-and-thin rect runs along the x-axis, so its
+  // parallel headings are east/west; a tall-and-thin one runs along the
+  // y-axis, so its parallel headings are south/north.
+  static _wallParallelHeadings(wall) {
+    const isHorizontal = wall.right - wall.left >= wall.bottom - wall.top;
+    return isHorizontal ? [0, Math.PI] : [Math.PI / 2, -Math.PI / 2];
   }
 
   // Fires reliably once the player has been continuously aimed-at and
@@ -199,16 +328,37 @@ class EasyAI {
     this.wantsToFire = aimedAndVisible && this.sightedTime >= this.requiredSightedTime;
   }
 
-  // The world-space center of the next cell along a BFS-shortest path
-  // from the tank's current cell to the target's — i.e. the immediate
-  // waypoint to steer toward when there's no direct line to the target.
+  // The world-space center of the far end of the current straight run
+  // along a BFS-shortest path from the tank's current cell to the
+  // target's — never a raw straight line to the target (a straight line
+  // can look open, e.g. across a dead-end alcove, while no walkable path
+  // actually follows it), and never just the immediate next cell either:
+  // compressing a whole run of same-direction cells into one waypoint is
+  // what makes the AI commit to a single heading down a corridor instead
+  // of re-aiming at every 80px cell, which was reading as a zigzag. Line
+  // of sight is still used for firing (see _updateFiring), never movement.
   //
-  // Commits to the same waypoint cell across multiple reaction ticks
-  // instead of re-planning every tick: an open maze often has several
-  // equally-short routes, so re-planning from scratch each tick could
-  // flip-flop between different valid routes and never actually get
-  // anywhere. Only re-plans once the tank has actually reached its
-  // current waypoint cell, or once the target has moved to a new cell.
+  // Commits to the same waypoint across frames instead of re-planning
+  // constantly: an open maze often has several equally-short routes, so
+  // re-planning from scratch on every check could flip-flop between valid
+  // routes and never actually get anywhere. Only re-plans once the tank
+  // has actually reached its current waypoint cell, once the target has
+  // moved to a new cell, or once the tank has drifted off the path the
+  // current waypoint was planned from (see _pathIndexOf) — that last case
+  // matters because getting shoved off-course (reversing away from an
+  // obstacle, or a collision push) can land the tank somewhere with no
+  // open route straight to the old waypoint at all; it was steering at a
+  // wall it could never pass, not failing to navigate around one.
+  //
+  // Called every frame (see update()), so this needs to stay cheap: the
+  // checks above are just cell/array comparisons, and findPath only runs
+  // when one of them actually trips.
+  //
+  // When a fresh waypoint requires a real heading change (i.e. we just
+  // reached a corner and the next run heads a different way), queues
+  // pendingCornerHeading for _updateMovement to execute as a deliberate
+  // stop-and-pivot (the 'cornerTurn' state) rather than swinging through
+  // the turn while still driving forward.
   _nextWaypoint(tank, target, maze) {
     const fromCell = maze.worldToCell(tank.x, tank.y);
     const toCell = maze.worldToCell(target.x, target.y);
@@ -217,21 +367,74 @@ class EasyAI {
       !this.waypointCell || (fromCell.row === this.waypointCell.row && fromCell.col === this.waypointCell.col);
     const targetMoved =
       !this.pathTargetCell || this.pathTargetCell.row !== toCell.row || this.pathTargetCell.col !== toCell.col;
+    const offPath = this.currentPath && EasyAI._pathIndexOf(fromCell, this.currentPath) === -1;
 
-    if (reachedWaypoint || targetMoved) {
+    if (reachedWaypoint || targetMoved || offPath) {
       const path = maze.findPath(fromCell, toCell);
       this.pathTargetCell = toCell;
-      this.waypointCell = path && path.length >= 2 ? path[1] : null;
+      this.currentPath = path;
+      const newWaypointCell = path ? EasyAI._runEndCell(path) : null;
+
+      const waypointChanged =
+        newWaypointCell && (!this.waypointCell || newWaypointCell.row !== this.waypointCell.row || newWaypointCell.col !== this.waypointCell.col);
+      if (waypointChanged) {
+        const center = maze._cellCenter(newWaypointCell.row, newWaypointCell.col);
+        const steerAngle = Math.atan2(center.y - tank.y, center.x - tank.x);
+        const headingDiff = Math.abs(EasyAI._normalizeAngle(steerAngle - tank.angle));
+        if (headingDiff > this.cornerTurnThreshold) {
+          this.pendingCornerHeading = EasyAI._snapToCardinal(steerAngle);
+        }
+      }
+
+      this.waypointCell = newWaypointCell;
     }
 
     return this.waypointCell ? maze._cellCenter(this.waypointCell.row, this.waypointCell.col) : null;
   }
 
-  // Whether something is blocking the tank's path forward. Uses a small
-  // rectangular sensor spanning a stretch of ground ahead (rather than a
-  // single point at one fixed distance) so a thin wall can't be missed
-  // just because it happens to fall between sample points.
+  // Index of `cell` within `path` (an array of {row,col}), or -1 if it's
+  // not on that path at all.
+  static _pathIndexOf(cell, path) {
+    return path.findIndex((c) => c.row === cell.row && c.col === cell.col);
+  }
+
+  // Walks forward from the start of `path` while consecutive steps keep
+  // moving in the same grid direction, and returns the last cell of that
+  // straight run — i.e. how far the AI should commit to one heading
+  // before it actually needs to turn. Falls back to the path's only cell
+  // if it has no second step (already at/adjacent to the destination).
+  static _runEndCell(path) {
+    if (!path || path.length < 2) return path ? path[0] : null;
+    const dRow = path[1].row - path[0].row;
+    const dCol = path[1].col - path[0].col;
+    let i = 1;
+    while (i + 1 < path.length && path[i + 1].row - path[i].row === dRow && path[i + 1].col - path[i].col === dCol) {
+      i++;
+    }
+    return path[i];
+  }
+
+  // Rounds an angle to the nearest cardinal direction (0/90/180/270deg).
+  // Maze corridors are grid-aligned, so the heading toward a run's end
+  // cell is already cardinal up to the tank's own offset from its lane's
+  // centerline; snapping gives cornerTurn a clean, exact target instead
+  // of chasing that offset.
+  static _snapToCardinal(angle) {
+    const step = Math.PI / 2;
+    return EasyAI._normalizeAngle(Math.round(angle / step) * step);
+  }
+
+  // Whether something is blocking the tank's path forward.
   _isPathBlocked(tank, maze) {
+    return this._sensedWall(tank, maze) !== null;
+  }
+
+  // The wall (if any) blocking the tank's path forward, so callers can
+  // read its orientation (see _chooseTurn) rather than just a yes/no.
+  // Uses a small rectangular sensor spanning a stretch of ground ahead
+  // (rather than a single point at one fixed distance) so a thin wall
+  // can't be missed just because it happens to fall between sample points.
+  _sensedWall(tank, maze) {
     const sensorLength = 24; // px of ground ahead the sensor covers
     const sensorCenterDist = tank.radius + sensorLength / 2;
     const sensor = {
@@ -242,7 +445,7 @@ class EasyAI {
       angle: tank.angle
     };
 
-    return maze.wallRects.some((wall) => Maze._satOverlap(sensor, Maze._wallShape(wall)));
+    return maze.wallRects.find((wall) => Maze._satOverlap(sensor, Maze._wallShape(wall))) || null;
   }
 
   _hasLineOfSight(tank, target, maze) {

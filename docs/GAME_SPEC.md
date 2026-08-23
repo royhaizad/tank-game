@@ -110,7 +110,7 @@ for the next reaction tick.
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
-| **Easy** | Casually approaches its target (steers toward them, or a pathfound waypoint when out of sight); on hitting a wall it stops, turns, tries the new heading briefly, and reverses + retries a different direction if still stuck | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-aiming/re-pathing/re-targeting only — obstacle response and firing are immediate, see notes) | Ignores ~half the time |
+| **Easy** | "Hallway driving": commits to a straight heading down a whole corridor at a time, stops and pivots cleanly at corners, and only stops/turns/reverses when something the route didn't anticipate blocks it | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-targeting which opponent only — pathing/waypoint updates, obstacle response, corner turns, and firing are all immediate, see notes) | Ignores ~half the time |
 | **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
 | **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
 
@@ -120,25 +120,54 @@ Medium/Hard from Easy. When Medium is built, it needs a different defining trait
 than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
 aiming, or actually using bank shots — to stay meaningfully harder than Easy.
 
-**Firing trigger (Easy):** fires as soon as its current target has been continuously
-aimed-at and directly visible (unobstructed line of sight) for 0.5s — not a random
-chance anymore (the old ~50%-per-0.8s-tick roll felt too slow to get an opening shot
-off). "Accuracy" for Easy is effectively retired until a real aim-miss mechanic
-exists; Medium/Hard should define their own accuracy behavior when built. Still
-subject to the 1-bullet/1s-cooldown ammo limit below.
+**Firing trigger (Easy):** fires instantly (0s delay) the moment its current target is
+aimed-at and directly visible (unobstructed line of sight) — not a random chance, and
+no longer a 0.5s aim-hold (that felt too slow to get an opening shot off). "Accuracy"
+for Easy is effectively retired until a real aim-miss mechanic exists; Medium/Hard
+should define their own accuracy behavior when built. Still subject to the
+1-bullet/1s-cooldown ammo limit below.
 
-**Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) reacts
-every frame, not on the ~0.8s reaction-delay cadence — that delay only governs how
-often the AI reconsiders its target (nearest living tank) and its next pathfound
-waypoint, not how fast it notices a wall in front of it.
+**Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) and its
+pathfound waypoint both react every frame, not on the ~0.8s reaction-delay cadence —
+that delay only governs how often the AI reconsiders *which opponent* to target, not
+how fast it notices a wall in front of it or reaches the end of its current corridor.
 
-**Movement direction (Easy):** always steers toward the next waypoint on a
-pathfound route through the maze grid — never a raw straight line to its target,
-even when one looks clear. A straight line can look open (e.g. a sightline across
-a dead-end alcove) while no walkable path actually follows it; steering at it
-anyway is what drove the AI into dead ends. This mirrors how the actual Tank
-Trouble AI ("Laika") navigates — A* pathfinding for movement, with line-of-sight
-used separately, only to decide when to fire.
+**Movement direction (Easy):** always steers toward a point on a pathfound route
+through the maze grid — never a raw straight line to its target, even when one
+looks clear. A straight line can look open (e.g. a sightline across a dead-end
+alcove) while no walkable path actually follows it; steering at it anyway is what
+drove the AI into dead ends. This mirrors how the actual Tank Trouble AI ("Laika")
+navigates — A*-driven, discrete-behavior decision making (per public dev accounts,
+since Laika's source isn't available), with line-of-sight used separately, only to
+decide when to fire.
+
+**"Hallway driving" (Easy):** the pathfound route is compressed into long straight
+runs — consecutive cells heading the same direction collapse into a single waypoint
+at the far end of that run — so the AI commits to one heading down a whole corridor
+instead of re-aiming at every single maze cell, which previously read as a
+zigzag. It only actually turns where the route genuinely bends, and does that turn
+as a deliberate stop-and-pivot in place (snapping to the exact corridor heading)
+rather than swinging through the corner while still driving forward, which was
+clipping the inside wall of the turn. Reactive obstacle avoidance (stop/turn/
+reverse, above) still applies on top of this for anything the planned route didn't
+anticipate.
+
+**Obstacle recovery (Easy):** when blocked, turns to align *parallel* with
+whichever wall it hit rather than turning for a fixed guessed duration — of the
+wall's two parallel headings, it picks whichever is closer to the direction of its
+current waypoint, then drives forward hugging that wall. If several blocked/reverse
+cycles happen in a row without a real stretch of unobstructed progress in between
+(a genuine loop, e.g. a pocket the current waypoint can't actually reach this way),
+it forces a fresh path replan and flips its wall-heading tie-break once, instead of
+retrying the same losing turn forever.
+
+Separately, the AI also re-plans its waypoint the instant the committed one stops
+being directly reachable from wherever it actually is (no open grid passage between
+its current cell and that waypoint cell) — not just when it reaches the waypoint or
+the opponent moves cells. Getting shoved off-course (reversing away from an
+obstacle, or a maze-wall collision push) could otherwise leave it committed to a
+waypoint on the other side of a wall it could never cross no matter how it turned,
+which read as the AI "getting stuck" pressed against a wall.
 
 **Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
 cooldown after it's gone before firing again — stricter than the player's 5-bullet,
