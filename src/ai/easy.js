@@ -59,15 +59,14 @@ class EasyAI {
     return { keys: this.keys, wantsToFire: this.wantsToFire };
   }
 
-  // Decides WHAT to steer toward: the player directly if there's a clear
-  // line to them, otherwise the next waypoint on a pathfound route.
+  // Decides WHAT to steer toward: always the next waypoint on a pathfound
+  // route through the maze grid, never a raw straight line to the player.
+  // A raw line can look clear (a thin sightline through a gap, or across
+  // a dead-end alcove) while no walkable path actually follows it — that
+  // mismatch is what drove the AI into dead ends before. Line of sight is
+  // still used for firing (see _updateFiring), just never for movement.
   _retarget(tank, target, maze) {
-    if (this._hasLineOfSight(tank, target, maze)) {
-      this.waypointCell = null; // forget any stale plan; re-plan fresh next time it's needed
-      this.steerPoint = { x: target.x, y: target.y };
-    } else {
-      this.steerPoint = this._nextWaypoint(tank, target, maze) || { x: target.x, y: target.y };
-    }
+    this.steerPoint = this._nextWaypoint(tank, target, maze) || { x: target.x, y: target.y };
   }
 
   // Executes the current steering point via a stop/turn/try/reverse state

@@ -104,8 +104,16 @@ the 1-bullet/1s-cooldown ammo limit below.
 
 **Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) reacts
 every frame, not on the ~0.8s reaction-delay cadence — that delay now only governs
-how often the AI reconsiders its overall target (direct approach vs. a pathfound
-waypoint), not how fast it notices a wall in front of it.
+how often the AI reconsiders its overall target (its next pathfound waypoint), not
+how fast it notices a wall in front of it.
+
+**Movement direction (Easy):** always steers toward the next waypoint on a
+pathfound route through the maze grid — never a raw straight line to the player,
+even when one looks clear. A straight line can look open (e.g. a sightline across
+a dead-end alcove) while no walkable path actually follows it; steering at it
+anyway is what drove the AI into dead ends. This mirrors how the actual Tank
+Trouble AI ("Laika") navigates — A* pathfinding for movement, with line-of-sight
+used separately, only to decide when to fire.
 
 **Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
 cooldown after it's gone before firing again — stricter than the player's 5-bullet,
