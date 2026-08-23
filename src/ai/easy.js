@@ -12,16 +12,17 @@
 // continuously aimed-at and directly visible for 0.5s, and only ever
 // while that line of sight stays clear (no bank shots).
 //
-// update() produces the same {w,a,s,d} shape Input.keys already produces
-// for the human player, plus a wantsToFire flag — so main.js can drive
-// the AI's Tank through the exact same Tank.update()/firing code path the
-// player uses. No changes needed to Tank, Bullet, or Maze for this.
+// update() produces the same { forward, backward, left, right } action
+// shape Tank.update() expects from the human player (see Input.bindings
+// in input.js), plus a wantsToFire flag — so main.js can drive the AI's
+// Tank through the exact same Tank.update()/firing code path the player
+// uses. No changes needed to Tank, Bullet, or Maze for this.
 class EasyAI {
   constructor() {
     this.reactionInterval = 0.8; // s, per GAME_SPEC.md section 5 (re-targeting cadence only)
     this.reactionTimer = 0;
 
-    this.keys = { w: false, a: false, s: false, d: false };
+    this.keys = { forward: false, backward: false, left: false, right: false };
     this.wantsToFire = false;
 
     // Where to steer toward — the player directly, or a pathfound
@@ -30,7 +31,7 @@ class EasyAI {
 
     // Movement state machine.
     this.moveState = 'seek'; // 'seek' | 'blockedTurn' | 'attempting' | 'reversing'
-    this.turnDirection = 'a';
+    this.turnDirection = 'left';
     this.stateTimer = 0;
     this.blockedTurnTimeout = 1.2; // s, safety cap so it can't spin in place forever
     this.attemptDuration = 0.5; // s, how long it tries the new heading before giving up
@@ -82,21 +83,21 @@ class EasyAI {
     if (this.moveState === 'seek') {
       if (this._isPathBlocked(tank, maze)) {
         this.moveState = 'blockedTurn';
-        this.turnDirection = angleDiff >= 0 ? 'd' : 'a'; // bias toward where it actually wants to go
+        this.turnDirection = angleDiff >= 0 ? 'right' : 'left'; // bias toward where it actually wants to go
         this.stateTimer = 0;
-        this.keys = { w: false, a: false, s: false, d: false };
+        this.keys = { forward: false, backward: false, left: false, right: false };
         this.keys[this.turnDirection] = true;
         return;
       }
 
-      this.keys = { w: true, a: false, s: false, d: false };
-      if (angleDiff > turnDeadzone) this.keys.d = true;
-      else if (angleDiff < -turnDeadzone) this.keys.a = true;
+      this.keys = { forward: true, backward: false, left: false, right: false };
+      if (angleDiff > turnDeadzone) this.keys.right = true;
+      else if (angleDiff < -turnDeadzone) this.keys.left = true;
       return;
     }
 
     if (this.moveState === 'blockedTurn') {
-      this.keys = { w: false, a: false, s: false, d: false };
+      this.keys = { forward: false, backward: false, left: false, right: false };
       this.keys[this.turnDirection] = true;
 
       if (!this._isPathBlocked(tank, maze) || this.stateTimer >= this.blockedTurnTimeout) {
@@ -110,11 +111,11 @@ class EasyAI {
       if (this._isPathBlocked(tank, maze)) {
         this.moveState = 'reversing';
         this.stateTimer = 0;
-        this.keys = { w: false, a: false, s: true, d: false };
+        this.keys = { forward: false, backward: true, left: false, right: false };
         return;
       }
 
-      this.keys = { w: true, a: false, s: false, d: false };
+      this.keys = { forward: true, backward: false, left: false, right: false };
       if (this.stateTimer >= this.attemptDuration) {
         this.moveState = 'seek';
         this.stateTimer = 0;
@@ -123,10 +124,10 @@ class EasyAI {
     }
 
     // 'reversing'
-    this.keys = { w: false, a: false, s: true, d: false };
+    this.keys = { forward: false, backward: true, left: false, right: false };
     if (this.stateTimer >= this.reverseDuration) {
       this.moveState = 'blockedTurn';
-      this.turnDirection = this.turnDirection === 'a' ? 'd' : 'a'; // alternate: try the other way this time
+      this.turnDirection = this.turnDirection === 'left' ? 'right' : 'left'; // alternate: try the other way this time
       this.stateTimer = 0;
     }
   }

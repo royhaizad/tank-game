@@ -4,9 +4,12 @@ const ctx = canvas.getContext('2d');
 const menu = new Menu(canvas);
 const hud = new Hud();
 
-let screen = 'title'; // 'title' | 'difficultySelect' | 'match' | 'result'
+// 'title' | 'difficultySelect' | 'match' | 'paused' | 'pauseConfirm' | 'controls' | 'result'
+let screen = 'title';
 let difficulty = 'easy';
 let matchWon = false;
+let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitle', while screen === 'pauseConfirm'
+let awaitingRebindAction = null; // action name currently waiting for a keypress, while screen === 'controls'
 
 let maze, playerTank, aiTank, easyAI, tanks, bullets;
 
@@ -30,10 +33,16 @@ function startMatch() {
 }
 
 function updateMatch(dt) {
-  playerTank.update(dt, Input.keys);
+  const playerActions = {
+    forward: Input.keys[Input.bindings.forward],
+    backward: Input.keys[Input.bindings.backward],
+    left: Input.keys[Input.bindings.left],
+    right: Input.keys[Input.bindings.right]
+  };
+  playerTank.update(dt, playerActions);
   maze.resolveTankCollision(playerTank);
 
-  if (Input.justPressed[' ']) {
+  if (Input.justPressed[Input.bindings.fire]) {
     if (maze.isBarrelBlocked(playerTank)) {
       AudioEngine.playEmptyFireClick();
     } else if (playerTank.canFire(activeBulletCount(playerTank))) {
@@ -80,6 +89,58 @@ function updateMatch(dt) {
   }
 }
 
+function drawMatchScene() {
+  maze.draw(ctx);
+  tanks.forEach((tank) => {
+    if (!tank.destroyed) tank.draw(ctx);
+  });
+  bullets.forEach((bullet) => bullet.draw(ctx));
+  hud.draw(ctx, canvas, playerTank, activeBulletCount(playerTank), difficulty);
+}
+
+function confirmMessage(action) {
+  if (action === 'rematch') return 'Start a new match?';
+  if (action === 'changeDifficulty') return 'Abandon this match and change difficulty?';
+  if (action === 'quitToTitle') return 'Abandon this match and return to the title screen?';
+  return '';
+}
+
+// Esc (or whatever's bound to "pause") toggles pause during a match, and
+// otherwise acts as a universal cancel/back for the pause submenus.
+function handlePauseToggle() {
+  if (!Input.justPressed[Input.bindings.pause]) return;
+
+  if (screen === 'match') {
+    screen = 'paused';
+  } else if (screen === 'paused') {
+    screen = 'match';
+  } else if (screen === 'pauseConfirm') {
+    pendingConfirmAction = null;
+    screen = 'paused';
+  } else if (screen === 'controls') {
+    if (awaitingRebindAction) {
+      awaitingRebindAction = null;
+    } else {
+      screen = 'paused';
+    }
+  }
+}
+
+// While waiting for a rebind, the next non-Escape key pressed becomes the
+// new binding for awaitingRebindAction (handlePauseToggle handles Escape
+// as "cancel" before this runs, so by the time we get here awaiting has
+// already been cleared if Escape was the key pressed).
+function handleRebindCapture() {
+  if (screen !== 'controls' || !awaitingRebindAction) return;
+
+  for (const key in Input.justPressed) {
+    if (!Input.justPressed[key] || key === 'escape') continue;
+    Input.rebind(awaitingRebindAction, key);
+    awaitingRebindAction = null;
+    break;
+  }
+}
+
 function handleMenuClick() {
   const clicked = menu.consumeClick();
   if (!clicked) return;
@@ -93,11 +154,33 @@ function handleMenuClick() {
     if (clicked === 'rematch') startMatch();
     else if (clicked === 'changeDifficulty') screen = 'difficultySelect';
     else if (clicked === 'title') screen = 'title';
+  } else if (screen === 'paused') {
+    if (clicked === 'resume') screen = 'match';
+    else if (clicked === 'changeControls') screen = 'controls';
+    else if (clicked === 'rematch' || clicked === 'changeDifficulty' || clicked === 'quitToTitle') {
+      pendingConfirmAction = clicked;
+      screen = 'pauseConfirm';
+    }
+  } else if (screen === 'pauseConfirm') {
+    if (clicked === 'yes') {
+      if (pendingConfirmAction === 'rematch') startMatch();
+      else if (pendingConfirmAction === 'changeDifficulty') screen = 'difficultySelect';
+      else if (pendingConfirmAction === 'quitToTitle') screen = 'title';
+      pendingConfirmAction = null;
+    } else if (clicked === 'no') {
+      pendingConfirmAction = null;
+      screen = 'paused';
+    }
+  } else if (screen === 'controls') {
+    if (clicked === 'back') screen = 'paused';
+    else awaitingRebindAction = clicked;
   }
 }
 
 startLoop(
   (dt) => {
+    handlePauseToggle();
+    handleRebindCapture();
     handleMenuClick();
     if (screen === 'match') updateMatch(dt);
     Input.update();
@@ -108,12 +191,16 @@ startLoop(
     } else if (screen === 'difficultySelect') {
       menu.drawDifficultySelect(ctx, canvas);
     } else if (screen === 'match') {
-      maze.draw(ctx);
-      tanks.forEach((tank) => {
-        if (!tank.destroyed) tank.draw(ctx);
-      });
-      bullets.forEach((bullet) => bullet.draw(ctx));
-      hud.draw(ctx, canvas, playerTank, activeBulletCount(playerTank), difficulty);
+      drawMatchScene();
+    } else if (screen === 'paused') {
+      drawMatchScene();
+      menu.drawPauseMenu(ctx, canvas);
+    } else if (screen === 'pauseConfirm') {
+      drawMatchScene();
+      menu.drawPauseMenu(ctx, canvas);
+      menu.drawConfirmDialog(ctx, canvas, confirmMessage(pendingConfirmAction));
+    } else if (screen === 'controls') {
+      menu.drawControlsScreen(ctx, canvas, Input.bindings, awaitingRebindAction);
     } else if (screen === 'result') {
       menu.drawResultScreen(ctx, canvas, matchWon);
     }

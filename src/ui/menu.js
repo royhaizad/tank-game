@@ -105,6 +105,127 @@ class Menu {
     this.buttons.forEach((btn) => this._drawButton(ctx, btn));
   }
 
+  // Overlaid on top of a frozen match scene main.js already drew this
+  // frame — doesn't clear the canvas first.
+  drawPauseMenu(ctx, canvas) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Paused', canvas.width / 2, 50);
+
+    const options = [
+      { id: 'resume', label: 'Resume' },
+      { id: 'rematch', label: 'Rematch' },
+      { id: 'changeDifficulty', label: 'Change Difficulty' },
+      { id: 'changeControls', label: 'Change Controls' },
+      { id: 'quitToTitle', label: 'Quit to Title' }
+    ];
+
+    this.buttons = options.map((opt, i) => ({
+      id: opt.id,
+      x: canvas.width / 2 - 110,
+      y: 80 + i * 64,
+      w: 220,
+      h: 52,
+      label: opt.label
+    }));
+
+    this.buttons.forEach((btn) => this._drawButton(ctx, btn));
+  }
+
+  // Also overlaid on top of the frozen match scene, on top of the pause
+  // menu itself.
+  drawConfirmDialog(ctx, canvas, message) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(message, canvas.width / 2, canvas.height / 2 - 40);
+
+    const yesButton = { id: 'yes', x: canvas.width / 2 - 130, y: canvas.height / 2, w: 120, h: 50, label: 'Yes' };
+    const noButton = { id: 'no', x: canvas.width / 2 + 10, y: canvas.height / 2, w: 120, h: 50, label: 'No' };
+    this.buttons = [yesButton, noButton];
+    this.buttons.forEach((btn) => this._drawButton(ctx, btn));
+  }
+
+  // Full-screen (not an overlay) — a dedicated screen for rebinding keys.
+  // `bindings` is Input.bindings; `awaitingAction` is the action name
+  // currently waiting for a keypress, or null.
+  drawControlsScreen(ctx, canvas, bindings, awaitingAction) {
+    this._drawBackground(ctx, canvas, '#2c4a1e');
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Change Controls', canvas.width / 2, 40);
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Click an action, then press the key to bind (Esc cancels)', canvas.width / 2, 62);
+
+    const actions = [
+      { id: 'forward', label: 'Move Forward' },
+      { id: 'backward', label: 'Move Backward' },
+      { id: 'left', label: 'Turn Left' },
+      { id: 'right', label: 'Turn Right' },
+      { id: 'fire', label: 'Fire' },
+      { id: 'pause', label: 'Pause' }
+    ];
+
+    this.buttons = actions.map((action, i) => ({
+      id: action.id,
+      x: canvas.width / 2 - 160,
+      y: 84 + i * 44,
+      w: 320,
+      h: 36,
+      label: action.label,
+      awaiting: awaitingAction === action.id,
+      keyDisplay: awaitingAction === action.id ? 'Press a key…' : Menu._displayKey(bindings[action.id])
+    }));
+
+    this.buttons.forEach((btn) => this._drawRebindRow(ctx, btn));
+
+    const backButton = {
+      id: 'back',
+      x: canvas.width / 2 - 80,
+      y: 84 + actions.length * 44 + 16,
+      w: 160,
+      h: 44,
+      label: 'Back'
+    };
+    this.buttons.push(backButton);
+    this._drawButton(ctx, backButton);
+  }
+
+  _drawRebindRow(ctx, btn) {
+    ctx.fillStyle = btn.awaiting ? '#c9903b' : '#3b6ea5';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = '#000';
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(btn.label, btn.x + 12, btn.y + btn.h / 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(btn.keyDisplay, btn.x + btn.w - 12, btn.y + btn.h / 2);
+    ctx.textBaseline = 'alphabetic'; // restore default for other draw calls
+  }
+
+  static _displayKey(key) {
+    if (key === ' ') return 'Space';
+    if (key === 'escape') return 'Esc';
+    if (key === 'arrowup') return '↑';
+    if (key === 'arrowdown') return '↓';
+    if (key === 'arrowleft') return '←';
+    if (key === 'arrowright') return '→';
+    return key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1);
+  }
+
   _drawBackground(ctx, canvas, color) {
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, canvas.width, canvas.height);

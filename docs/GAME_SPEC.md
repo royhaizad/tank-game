@@ -136,9 +136,31 @@ bullets at close range.
 
 ## 7. Controls
 
-- **Move:** WASD or Arrow Keys (tank-drive, not free 8-way strafing)
-- **Fire:** Spacebar
-- **Pause:** Esc → Resume / Quit to Title
+- **Move:** WASD by default (tank-drive, not free 8-way strafing) — fully
+  rebindable, see Pause Menu below. Arrow Keys are no longer a fixed
+  secondary scheme; any key can be bound to any action.
+- **Fire:** Spacebar by default — also rebindable.
+- **Pause:** Esc opens the Pause Menu, and also acts as the universal
+  cancel/back key within it. Esc itself cannot be rebound.
+
+### Pause Menu (opened by Esc during a match)
+
+1. **Resume** — closes the menu, match continues exactly where it left off.
+2. **Rematch*** — new random maze, same difficulty.
+3. **Change Difficulty*** — abandons the match, returns to Difficulty Select.
+4. **Change Controls** — full key rebinding screen (see below). No confirmation
+   needed; rebinding doesn't affect the current match.
+5. **Quit to Title*** — abandons the match, returns to the Title Screen.
+
+\* Requires a Yes/No confirmation (abandons the in-progress match) before
+proceeding.
+
+**Change Controls screen:** lists every bindable action (Move Forward, Move
+Backward, Turn Left, Turn Right, Fire, Pause) with its current key. Click an
+action, then press any key to bind it. If that key was already bound to a
+different action, the two actions swap keys — no action is ever left
+unbound, no key is ever shared by two actions. Esc cancels an in-progress
+rebind instead of being assignable.
 
 ---
 

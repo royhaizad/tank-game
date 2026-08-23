@@ -57,14 +57,18 @@ class Tank {
     };
   }
 
-  update(dt, keys) {
+  // actions: { forward, backward, left, right } — semantic movement
+  // intent, not literal key names, so this has no idea which physical
+  // keys the player bound to them (see Input.bindings) and AI tanks can
+  // drive themselves the exact same way (see EasyAI).
+  update(dt, actions) {
     if (this.cooldownRemaining > 0) {
       this.cooldownRemaining = Math.max(0, this.cooldownRemaining - dt);
     }
 
-    if (keys['w']) {
+    if (actions.forward) {
       this.speed += this.acceleration * dt;
-    } else if (keys['s']) {
+    } else if (actions.backward) {
       this.speed -= this.acceleration * dt;
     } else if (this.speed > 0) {
       this.speed = Math.max(0, this.speed - this.friction * dt);
@@ -74,8 +78,8 @@ class Tank {
 
     this.speed = Math.max(-this.maxReverseSpeed, Math.min(this.maxForwardSpeed, this.speed));
 
-    if (keys['a']) this.angle -= this.rotationSpeed * dt;
-    if (keys['d']) this.angle += this.rotationSpeed * dt;
+    if (actions.left) this.angle -= this.rotationSpeed * dt;
+    if (actions.right) this.angle += this.rotationSpeed * dt;
 
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
