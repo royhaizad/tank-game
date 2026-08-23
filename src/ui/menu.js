@@ -1,9 +1,12 @@
-// Title, Difficulty Select, and Result screens, per GAME_SPEC.md section 6.
+// Title, Mission Briefing, and Result screens, per GAME_SPEC.md section 6.
 // Draws whichever screen main.js asks for and turns canvas clicks into a
 // button id main.js can act on (consumeClick()), the same "produce an
 // intent, let main.js decide what to do with it" pattern EasyAI uses for
 // keys/wantsToFire.
 class Menu {
+  static PLAYER_COLORS = ['#3b6ea5', '#3f9142', '#8a3ba5']; // blue, green, purple
+  static AI_COLORS = ['#a53b3b', '#c97a2e', '#7a1f6b']; // red, orange, magenta-red
+
   constructor(canvas) {
     this.canvas = canvas;
     this.buttons = [];
@@ -47,45 +50,195 @@ class Menu {
     this._drawButton(ctx, playButton);
   }
 
-  drawDifficultySelect(ctx, canvas) {
+  // Mission Briefing screen, per GAME_SPEC.md section 6: pick player count
+  // (1-3), AI count (0-3, only 0-selectable when players > 1), each AI's
+  // difficulty (Medium/Hard disabled — not built yet), and each player's
+  // control scheme (rebindable inline, same as the pause menu's Change
+  // Controls). `config` is { playerCount, aiCount, aiDifficulties[3] }.
+  drawBriefingScreen(ctx, canvas, config, awaitingRebind) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
+    this.buttons = [];
 
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = 'bold 24px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Select Difficulty', canvas.width / 2, 60);
+    ctx.fillText('Mission Briefing', canvas.width / 2, 22);
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Configure your forces before battle', canvas.width / 2, 38);
 
-    const tiers = [
-      { id: 'easy', label: 'Easy', desc: 'Casual pursuit, basic ammo, no bank shots' },
-      { id: 'medium', label: 'Medium', desc: 'Coming soon', disabled: true },
-      { id: 'hard', label: 'Hard', desc: 'Coming soon', disabled: true }
-    ];
+    this._drawCountSelector(
+      ctx,
+      160,
+      'Allied Forces',
+      ['1P', '2P', '3P'],
+      config.playerCount - 1, // labels are 1-indexed counts but option index is 0-indexed
+      'players',
+      () => false
+    );
+    this._drawCountSelector(ctx, 480, 'Enemy Forces', ['0', '1', '2', '3'], config.aiCount, 'ai', (n) =>
+      n === 0 ? config.playerCount < 2 : false
+    );
 
-    this.buttons = tiers.map((tier, i) => ({
-      id: tier.id,
-      x: canvas.width / 2 - 100,
-      y: 110 + i * 100,
-      w: 200,
-      h: 56,
-      label: tier.label,
-      disabled: tier.disabled
-    }));
+    for (let i = 0; i < config.playerCount; i++) {
+      this._drawPlayerBriefingRow(ctx, i, 95 + i * 85, awaitingRebind);
+    }
+    for (let i = 0; i < config.aiCount; i++) {
+      this._drawAiBriefingRow(ctx, i, 95 + i * 85, config.aiDifficulties[i]);
+    }
 
-    this.buttons.forEach((btn, i) => {
-      this._drawButton(ctx, btn);
-      ctx.fillStyle = '#cfcfcf';
-      ctx.font = '13px sans-serif';
-      ctx.fillText(tiers[i].desc, canvas.width / 2, btn.y + btn.h + 18);
+    const canBattle = config.playerCount + config.aiCount >= 2;
+    const backButton = { id: 'briefingBack', x: 200, y: 440, w: 90, h: 34, label: '← Back' };
+    const battleButton = {
+      id: 'battle',
+      x: 340,
+      y: 440,
+      w: 120,
+      h: 34,
+      label: '▶ Battle!',
+      disabled: !canBattle
+    };
+    this.buttons.push(backButton, battleButton);
+    this._drawButton(ctx, backButton);
+    this._drawButton(ctx, battleButton);
+  }
+
+  _drawCountSelector(ctx, centerX, title, optionLabels, current, idPrefix, isDisabled) {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(title, centerX, 55);
+
+    const w = 42;
+    const gap = 6;
+    const totalW = optionLabels.length * w + (optionLabels.length - 1) * gap;
+    let x = centerX - totalW / 2;
+
+    optionLabels.forEach((label, i) => {
+      const btn = {
+        id: `${idPrefix}:${i}`,
+        x,
+        y: 64,
+        w,
+        h: 24,
+        label,
+        disabled: isDisabled(i),
+        selected: i === current
+      };
+      this.buttons.push(btn);
+      this._drawToggleButton(ctx, btn);
+      x += w + gap;
     });
   }
 
-  drawResultScreen(ctx, canvas, won) {
-    this._drawBackground(ctx, canvas, won ? '#1e4a2c' : '#4a1e1e');
+  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind) {
+    const colors = Menu.PLAYER_COLORS;
+    const bindings = Input.playerBindings[playerIndex];
+
+    ctx.fillStyle = colors[playerIndex];
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`PLAYER ${playerIndex + 1}`, 20, y);
+
+    const actions = ['forward', 'backward', 'left', 'right', 'fire'];
+    const shortLabels = ['Fwd', 'Back', 'Left', 'Right', 'Fire'];
+    const boxW = 46;
+    const gap = 5;
+    let x = 20;
+
+    actions.forEach((action, i) => {
+      const awaiting = awaitingRebind && awaitingRebind.playerIndex === playerIndex && awaitingRebind.action === action;
+      const btn = {
+        id: `rebind:${playerIndex}:${action}`,
+        x,
+        y: y + 10,
+        w: boxW,
+        h: 28,
+        label: awaiting ? '…' : Menu._displayKey(bindings[action]),
+        caption: shortLabels[i],
+        awaiting
+      };
+      this.buttons.push(btn);
+      this._drawKeyBox(ctx, btn);
+      x += boxW + gap;
+    });
+  }
+
+  _drawAiBriefingRow(ctx, aiIndex, y, difficulty) {
+    const colors = Menu.AI_COLORS;
+
+    ctx.fillStyle = colors[aiIndex];
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`AI ${aiIndex + 1}`, 340, y);
+
+    const tiers = [
+      { id: 'easy', label: 'Easy' },
+      { id: 'medium', label: 'Med', disabled: true },
+      { id: 'hard', label: 'Hard', disabled: true }
+    ];
+    const boxW = 55;
+    const gap = 6;
+    let x = 340;
+
+    tiers.forEach((tier) => {
+      const btn = {
+        id: `diff:${aiIndex}:${tier.id}`,
+        x,
+        y: y + 10,
+        w: boxW,
+        h: 28,
+        label: tier.label,
+        disabled: tier.disabled,
+        selected: difficulty === tier.id
+      };
+      this.buttons.push(btn);
+      this._drawToggleButton(ctx, btn);
+      x += boxW + gap;
+    });
+  }
+
+  _drawToggleButton(ctx, btn) {
+    ctx.fillStyle = btn.disabled ? '#3a3a3a' : btn.selected ? '#3b6ea5' : '#4a4a4a';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = btn.selected ? '#fff' : '#000';
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+    ctx.fillStyle = btn.disabled ? '#777' : '#fff';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  _drawKeyBox(ctx, btn) {
+    ctx.fillStyle = btn.awaiting ? '#c9903b' : '#3b6ea5';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = '#000';
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+    ctx.fillStyle = '#cfcfcf';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(btn.caption, btn.x + btn.w / 2, btn.y - 2);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2 + 1);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // winner: { label, kind: 'player'|'ai' } for whoever's left standing, or
+  // null for a draw (simultaneous mutual kill), per GAME_SPEC.md section 9.
+  drawResultScreen(ctx, canvas, winner) {
+    const bg = !winner ? '#3a3a3a' : winner.kind === 'player' ? '#1e4a2c' : '#4a1e1e';
+    this._drawBackground(ctx, canvas, bg);
 
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 36px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(won ? 'Victory!' : 'Defeat', canvas.width / 2, 90);
+    ctx.fillText(winner ? `${winner.label} Wins!` : 'Draw', canvas.width / 2, 90);
 
     const options = [
       { id: 'rematch', label: 'Rematch' },
@@ -153,47 +306,33 @@ class Menu {
     this.buttons.forEach((btn) => this._drawButton(ctx, btn));
   }
 
-  // Full-screen (not an overlay) — a dedicated screen for rebinding keys.
-  // `bindings` is Input.bindings; `awaitingAction` is the action name
-  // currently waiting for a keypress, or null.
-  drawControlsScreen(ctx, canvas, bindings, awaitingAction) {
+  // Full-screen (not an overlay) — a dedicated screen for rebinding keys,
+  // covering every active player's scheme (Pause is never listed here —
+  // it's fixed to Esc, not rebindable, per GAME_SPEC.md section 7). Reuses
+  // the same compact per-player key-box row the Mission Briefing screen
+  // uses, so the two rebinding UIs look and behave identically.
+  // `awaitingRebind` is { playerIndex, action } or null.
+  drawControlsScreen(ctx, canvas, playerCount, awaitingRebind) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
+    this.buttons = [];
 
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 26px sans-serif';
+    ctx.font = 'bold 24px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Change Controls', canvas.width / 2, 40);
-    ctx.font = '13px sans-serif';
-    ctx.fillText('Click an action, then press the key to bind (Esc cancels)', canvas.width / 2, 62);
+    ctx.fillText('Change Controls', canvas.width / 2, 36);
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Click an action, then press the key to bind (Esc cancels)', canvas.width / 2, 56);
 
-    const actions = [
-      { id: 'forward', label: 'Move Forward' },
-      { id: 'backward', label: 'Move Backward' },
-      { id: 'left', label: 'Turn Left' },
-      { id: 'right', label: 'Turn Right' },
-      { id: 'fire', label: 'Fire' },
-      { id: 'pause', label: 'Pause' }
-    ];
-
-    this.buttons = actions.map((action, i) => ({
-      id: action.id,
-      x: canvas.width / 2 - 160,
-      y: 84 + i * 44,
-      w: 320,
-      h: 36,
-      label: action.label,
-      awaiting: awaitingAction === action.id,
-      keyDisplay: awaitingAction === action.id ? 'Press a key…' : Menu._displayKey(bindings[action.id])
-    }));
-
-    this.buttons.forEach((btn) => this._drawRebindRow(ctx, btn));
+    for (let i = 0; i < playerCount; i++) {
+      this._drawPlayerBriefingRow(ctx, i, 90 + i * 85, awaitingRebind);
+    }
 
     const backButton = {
       id: 'back',
       x: canvas.width / 2 - 80,
-      y: 84 + actions.length * 44 + 16,
+      y: 90 + playerCount * 85 + 10,
       w: 160,
-      h: 44,
+      h: 40,
       label: 'Back'
     };
     this.buttons.push(backButton);

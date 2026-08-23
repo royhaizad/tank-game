@@ -1,21 +1,25 @@
-// In-match HUD, per GAME_SPEC.md section 6: current weapon + ammo count,
-// difficulty label. Only the base cannon exists so far (no power-ups
-// yet), so "weapon" just reads "Cannon" for now.
+// In-match HUD, per GAME_SPEC.md section 6: current weapon + ammo count
+// per player, tank labels. Only the base cannon exists so far (no
+// power-ups yet), so "weapon" just reads "Cannon" for now.
 class Hud {
-  draw(ctx, canvas, playerTank, activeCount, difficultyLabel) {
+  // playerEntries: match entries with kind === 'player', in player order.
+  draw(ctx, canvas, playerEntries, activeBulletCount) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(0, 0, canvas.width, 26);
+    ctx.fillRect(0, 0, canvas.width, 24);
 
-    ctx.font = '13px sans-serif';
-    ctx.textBaseline = 'middle';
-    const midY = 13;
-
-    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`Cannon: ${activeCount}/${playerTank.maxActiveBullets}`, 8, midY);
+    ctx.textBaseline = 'middle';
+    const midY = 12;
 
-    ctx.textAlign = 'right';
-    ctx.fillText(`Difficulty: ${difficultyLabel}`, canvas.width - 8, midY);
+    let x = 8;
+    playerEntries.forEach((entry) => {
+      const status = entry.tank.destroyed ? 'OUT' : `${activeBulletCount(entry.tank)}/${entry.tank.maxActiveBullets}`;
+      const text = `${entry.label}: ${status}`;
+      ctx.fillStyle = entry.tank.color;
+      ctx.fillText(text, x, midY);
+      x += ctx.measureText(text).width + 18;
+    });
 
     ctx.textBaseline = 'alphabetic'; // restore default for other draw calls
   }

@@ -4,77 +4,107 @@ const ctx = canvas.getContext('2d');
 const menu = new Menu(canvas);
 const hud = new Hud();
 
-// 'title' | 'difficultySelect' | 'match' | 'paused' | 'pauseConfirm' | 'controls' | 'result'
+// 'title' | 'briefing' | 'match' | 'paused' | 'pauseConfirm' | 'controls' | 'result'
 let screen = 'title';
-let difficulty = 'easy';
-let matchWon = false;
-let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitle', while screen === 'pauseConfirm'
-let awaitingRebindAction = null; // action name currently waiting for a keypress, while screen === 'controls'
 
-let maze, playerTank, aiTank, easyAI, tanks, bullets;
+// Mission Briefing config, per GAME_SPEC.md section 6.
+const config = {
+  playerCount: 1,
+  aiCount: 1,
+  aiDifficulties: ['easy', 'easy', 'easy'] // per AI slot; only the first aiCount are used
+};
+
+let winner = null; // { label, kind } of whoever's left standing, or null for a draw
+let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitle', while screen === 'pauseConfirm'
+let awaitingRebind = null; // { playerIndex, action } while waiting for a keypress, on briefing or controls screens
+
+let maze, matchTanks, bullets;
 
 function activeBulletCount(tank) {
   return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
 }
 
 function startMatch() {
+  const total = config.playerCount + config.aiCount;
   maze = new Maze(8, 6, 80); // 8*80=640, 6*80=480, matches the canvas size
-  const spawnPoints = maze.getSpawnPoints(2);
+  const spawnPoints = maze.getSpawnPoints(total);
 
-  playerTank = new Tank(spawnPoints[0].x, spawnPoints[0].y, '#3b6ea5'); // blue, per GAME_SPEC.md section 2
-  aiTank = new Tank(spawnPoints[1].x, spawnPoints[1].y, '#a53b3b'); // red, per GAME_SPEC.md section 2
-  aiTank.maxActiveBullets = 1; // AI ammo override, per GAME_SPEC.md section 5
-  aiTank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
-  easyAI = new EasyAI();
-  tanks = [playerTank, aiTank];
+  matchTanks = [];
+  let spawnIndex = 0;
+
+  for (let i = 0; i < config.playerCount; i++) {
+    const spawn = spawnPoints[spawnIndex++];
+    const tank = new Tank(spawn.x, spawn.y, Menu.PLAYER_COLORS[i]);
+    matchTanks.push({ tank, kind: 'player', label: `P${i + 1}`, playerIndex: i });
+  }
+
+  for (let i = 0; i < config.aiCount; i++) {
+    const spawn = spawnPoints[spawnIndex++];
+    const tank = new Tank(spawn.x, spawn.y, Menu.AI_COLORS[i]);
+    tank.maxActiveBullets = 1; // AI ammo override, per GAME_SPEC.md section 5
+    tank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
+    matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai: new EasyAI() });
+  }
+
   bullets = [];
-
+  winner = null;
   screen = 'match';
 }
 
+function fireIfPossible(tank, angleSource) {
+  if (!tank.canFire(activeBulletCount(tank))) return;
+  const tip = tank.getBarrelTip();
+  bullets.push(new Bullet(tip.x, tip.y, angleSource.angle, tank));
+  tank.cooldownRemaining = tank.fireCooldownDuration;
+}
+
 function updateMatch(dt) {
-  const playerActions = {
-    forward: Input.keys[Input.bindings.forward],
-    backward: Input.keys[Input.bindings.backward],
-    left: Input.keys[Input.bindings.left],
-    right: Input.keys[Input.bindings.right]
-  };
-  playerTank.update(dt, playerActions);
-  maze.resolveTankCollision(playerTank);
+  matchTanks.forEach((entry) => {
+    if (entry.tank.destroyed) return;
 
-  if (Input.justPressed[Input.bindings.fire]) {
-    if (maze.isBarrelBlocked(playerTank)) {
-      AudioEngine.playEmptyFireClick();
-    } else if (playerTank.canFire(activeBulletCount(playerTank))) {
-      const tip = playerTank.getBarrelTip();
-      bullets.push(new Bullet(tip.x, tip.y, playerTank.angle, playerTank));
-      playerTank.cooldownRemaining = playerTank.fireCooldownDuration;
+    if (entry.kind === 'player') {
+      const bindings = Input.playerBindings[entry.playerIndex];
+      const actions = {
+        forward: Input.keys[bindings.forward],
+        backward: Input.keys[bindings.backward],
+        left: Input.keys[bindings.left],
+        right: Input.keys[bindings.right]
+      };
+      entry.tank.update(dt, actions);
+      maze.resolveTankCollision(entry.tank);
+
+      if (Input.justPressed[bindings.fire]) {
+        if (maze.isBarrelBlocked(entry.tank)) {
+          AudioEngine.playEmptyFireClick();
+        } else {
+          fireIfPossible(entry.tank, entry.tank);
+        }
+      }
+    } else {
+      const opponents = matchTanks.filter((other) => other !== entry).map((other) => other.tank);
+      const decision = entry.ai.update(dt, entry.tank, opponents, maze);
+      entry.tank.update(dt, decision.keys);
+      maze.resolveTankCollision(entry.tank);
+
+      if (decision.wantsToFire && !maze.isBarrelBlocked(entry.tank)) {
+        fireIfPossible(entry.tank, entry.tank);
+      }
     }
-  }
-
-  if (!aiTank.destroyed) {
-    const decision = easyAI.update(dt, aiTank, playerTank, maze);
-    aiTank.update(dt, decision.keys);
-    maze.resolveTankCollision(aiTank);
-
-    if (decision.wantsToFire && !maze.isBarrelBlocked(aiTank) && aiTank.canFire(activeBulletCount(aiTank))) {
-      const tip = aiTank.getBarrelTip();
-      bullets.push(new Bullet(tip.x, tip.y, aiTank.angle, aiTank));
-      aiTank.cooldownRemaining = aiTank.fireCooldownDuration;
-    }
-  }
+  });
 
   bullets.forEach((bullet) => bullet.update(dt, maze));
 
+  // Free-for-all, per GAME_SPEC.md section 9: a bullet destroys whatever
+  // tank it touches, regardless of who fired it or who's driving either.
   bullets.forEach((bullet) => {
     if (!bullet.alive) return;
-    tanks.forEach((tank) => {
-      if (tank.destroyed) return;
-      const dx = bullet.x - tank.x;
-      const dy = bullet.y - tank.y;
-      const hitDistance = bullet.radius + tank.radius;
+    matchTanks.forEach((entry) => {
+      if (entry.tank.destroyed) return;
+      const dx = bullet.x - entry.tank.x;
+      const dy = bullet.y - entry.tank.y;
+      const hitDistance = bullet.radius + entry.tank.radius;
       if (dx * dx + dy * dy <= hitDistance * hitDistance) {
-        tank.destroyed = true;
+        entry.tank.destroyed = true;
         bullet.alive = false;
       }
     });
@@ -82,33 +112,44 @@ function updateMatch(dt) {
 
   bullets = bullets.filter((bullet) => bullet.alive);
 
-  // Per GAME_SPEC.md section 9: match ends immediately on either tank being hit.
-  if (playerTank.destroyed || aiTank.destroyed) {
-    matchWon = aiTank.destroyed;
+  const survivors = matchTanks.filter((entry) => !entry.tank.destroyed);
+  if (survivors.length <= 1) {
+    winner = survivors.length === 1 ? { label: survivors[0].label, kind: survivors[0].kind } : null;
     screen = 'result';
   }
 }
 
 function drawMatchScene() {
   maze.draw(ctx);
-  tanks.forEach((tank) => {
-    if (!tank.destroyed) tank.draw(ctx);
+
+  matchTanks.forEach((entry) => {
+    if (entry.tank.destroyed) return;
+    entry.tank.draw(ctx);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(entry.label, entry.tank.x, entry.tank.y - entry.tank.radius - 6);
   });
+
   bullets.forEach((bullet) => bullet.draw(ctx));
-  hud.draw(ctx, canvas, playerTank, activeBulletCount(playerTank), difficulty);
+
+  const playerEntries = matchTanks.filter((entry) => entry.kind === 'player');
+  hud.draw(ctx, canvas, playerEntries, activeBulletCount);
 }
 
 function confirmMessage(action) {
   if (action === 'rematch') return 'Start a new match?';
-  if (action === 'changeDifficulty') return 'Abandon this match and change difficulty?';
+  if (action === 'changeDifficulty') return 'Abandon this match and reconfigure forces?';
   if (action === 'quitToTitle') return 'Abandon this match and return to the title screen?';
   return '';
 }
 
 // Esc (or whatever's bound to "pause") toggles pause during a match, and
-// otherwise acts as a universal cancel/back for the pause submenus.
+// otherwise acts as a universal cancel/back for the pause submenus. Pause
+// is fixed to Esc and never rebindable, per GAME_SPEC.md section 7.
 function handlePauseToggle() {
-  if (!Input.justPressed[Input.bindings.pause]) return;
+  if (!Input.justPressed[Input.pauseKey]) return;
 
   if (screen === 'match') {
     screen = 'paused';
@@ -118,8 +159,8 @@ function handlePauseToggle() {
     pendingConfirmAction = null;
     screen = 'paused';
   } else if (screen === 'controls') {
-    if (awaitingRebindAction) {
-      awaitingRebindAction = null;
+    if (awaitingRebind) {
+      awaitingRebind = null;
     } else {
       screen = 'paused';
     }
@@ -127,17 +168,39 @@ function handlePauseToggle() {
 }
 
 // While waiting for a rebind, the next non-Escape key pressed becomes the
-// new binding for awaitingRebindAction (handlePauseToggle handles Escape
-// as "cancel" before this runs, so by the time we get here awaiting has
-// already been cleared if Escape was the key pressed).
+// new binding (handlePauseToggle handles Escape as "cancel" before this
+// runs, so by the time we get here awaiting has already been cleared if
+// Escape was the key pressed). Active on both the briefing and pause-menu
+// controls screens.
 function handleRebindCapture() {
-  if (screen !== 'controls' || !awaitingRebindAction) return;
+  if ((screen !== 'controls' && screen !== 'briefing') || !awaitingRebind) return;
 
   for (const key in Input.justPressed) {
     if (!Input.justPressed[key] || key === 'escape') continue;
-    Input.rebind(awaitingRebindAction, key);
-    awaitingRebindAction = null;
+    Input.rebind(awaitingRebind.playerIndex, awaitingRebind.action, key);
+    awaitingRebind = null;
     break;
+  }
+}
+
+function handleBriefingClick(clicked) {
+  if (clicked.startsWith('players:')) {
+    config.playerCount = Number(clicked.split(':')[1]) + 1;
+    if (config.aiCount === 0 && config.playerCount < 2) config.aiCount = 1;
+  } else if (clicked.startsWith('ai:')) {
+    const count = Number(clicked.split(':')[1]);
+    if (count === 0 && config.playerCount < 2) return; // disabled per GAME_SPEC.md section 6
+    config.aiCount = count;
+  } else if (clicked.startsWith('diff:')) {
+    const [, aiIndex, tier] = clicked.split(':');
+    if (tier === 'easy') config.aiDifficulties[Number(aiIndex)] = tier;
+  } else if (clicked.startsWith('rebind:')) {
+    const [, playerIndex, action] = clicked.split(':');
+    awaitingRebind = { playerIndex: Number(playerIndex), action };
+  } else if (clicked === 'briefingBack') {
+    screen = 'title';
+  } else if (clicked === 'battle' && config.playerCount + config.aiCount >= 2) {
+    startMatch();
   }
 }
 
@@ -146,13 +209,12 @@ function handleMenuClick() {
   if (!clicked) return;
 
   if (screen === 'title' && clicked === 'play') {
-    screen = 'difficultySelect';
-  } else if (screen === 'difficultySelect' && clicked === 'easy') {
-    difficulty = clicked;
-    startMatch();
+    screen = 'briefing';
+  } else if (screen === 'briefing') {
+    handleBriefingClick(clicked);
   } else if (screen === 'result') {
     if (clicked === 'rematch') startMatch();
-    else if (clicked === 'changeDifficulty') screen = 'difficultySelect';
+    else if (clicked === 'changeDifficulty') screen = 'briefing';
     else if (clicked === 'title') screen = 'title';
   } else if (screen === 'paused') {
     if (clicked === 'resume') screen = 'match';
@@ -164,7 +226,7 @@ function handleMenuClick() {
   } else if (screen === 'pauseConfirm') {
     if (clicked === 'yes') {
       if (pendingConfirmAction === 'rematch') startMatch();
-      else if (pendingConfirmAction === 'changeDifficulty') screen = 'difficultySelect';
+      else if (pendingConfirmAction === 'changeDifficulty') screen = 'briefing';
       else if (pendingConfirmAction === 'quitToTitle') screen = 'title';
       pendingConfirmAction = null;
     } else if (clicked === 'no') {
@@ -173,7 +235,10 @@ function handleMenuClick() {
     }
   } else if (screen === 'controls') {
     if (clicked === 'back') screen = 'paused';
-    else awaitingRebindAction = clicked;
+    else if (clicked.startsWith('rebind:')) {
+      const [, playerIndex, action] = clicked.split(':');
+      awaitingRebind = { playerIndex: Number(playerIndex), action };
+    }
   }
 }
 
@@ -188,8 +253,8 @@ startLoop(
   () => {
     if (screen === 'title') {
       menu.drawTitleScreen(ctx, canvas);
-    } else if (screen === 'difficultySelect') {
-      menu.drawDifficultySelect(ctx, canvas);
+    } else if (screen === 'briefing') {
+      menu.drawBriefingScreen(ctx, canvas, config, awaitingRebind);
     } else if (screen === 'match') {
       drawMatchScene();
     } else if (screen === 'paused') {
@@ -200,9 +265,9 @@ startLoop(
       menu.drawPauseMenu(ctx, canvas);
       menu.drawConfirmDialog(ctx, canvas, confirmMessage(pendingConfirmAction));
     } else if (screen === 'controls') {
-      menu.drawControlsScreen(ctx, canvas, Input.bindings, awaitingRebindAction);
+      menu.drawControlsScreen(ctx, canvas, config.playerCount, awaitingRebind);
     } else if (screen === 'result') {
-      menu.drawResultScreen(ctx, canvas, matchWon);
+      menu.drawResultScreen(ctx, canvas, winner);
     }
   }
 );

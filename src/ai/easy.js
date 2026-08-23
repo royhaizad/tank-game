@@ -13,10 +13,10 @@
 // while that line of sight stays clear (no bank shots).
 //
 // update() produces the same { forward, backward, left, right } action
-// shape Tank.update() expects from the human player (see Input.bindings
+// shape Tank.update() expects from a human player (see Input.playerBindings
 // in input.js), plus a wantsToFire flag — so main.js can drive the AI's
-// Tank through the exact same Tank.update()/firing code path the player
-// uses. No changes needed to Tank, Bullet, or Maze for this.
+// Tank through the exact same Tank.update()/firing code path players use.
+// No changes needed to Tank, Bullet, or Maze for this.
 class EasyAI {
   constructor() {
     this.reactionInterval = 0.8; // s, per GAME_SPEC.md section 5 (re-targeting cadence only)
@@ -25,7 +25,12 @@ class EasyAI {
     this.keys = { forward: false, backward: false, left: false, right: false };
     this.wantsToFire = false;
 
-    // Where to steer toward — the player directly, or a pathfound
+    // FFA: whichever other living tank is currently nearest by path
+    // distance (see _nearestOpponent). Re-evaluated every reaction tick,
+    // or immediately if the current target is destroyed.
+    this.target = null;
+
+    // Where to steer toward — the target directly, or a pathfound
     // waypoint — refreshed every reaction tick by _retarget().
     this.steerPoint = null;
 
@@ -47,21 +52,62 @@ class EasyAI {
     this.facingThreshold = 0.26; // ~15 degrees, radians
   }
 
-  update(dt, tank, target, maze) {
+  // `opponents`: every other tank in the match (living or destroyed —
+  // this filters for itself). FFA per GAME_SPEC.md section 5: targets
+  // whichever is nearest by path distance, player or AI alike.
+  update(dt, tank, opponents, maze) {
+    if (!this.target || this.target.destroyed) {
+      this.target = this._nearestOpponent(tank, opponents, maze);
+      if (this.target) this._retarget(tank, this.target, maze);
+    }
+
     this.reactionTimer -= dt;
     if (this.reactionTimer <= 0) {
       this.reactionTimer = this.reactionInterval;
-      this._retarget(tank, target, maze);
+      const nearest = this._nearestOpponent(tank, opponents, maze);
+      if (nearest) {
+        this.target = nearest;
+        this._retarget(tank, this.target, maze);
+      }
     }
 
-    this._updateMovement(dt, tank, maze);
-    this._updateFiring(dt, tank, target, maze);
+    if (this.target) {
+      this._updateMovement(dt, tank, maze);
+      this._updateFiring(dt, tank, this.target, maze);
+    } else {
+      this.keys = { forward: false, backward: false, left: false, right: false };
+      this.wantsToFire = false;
+    }
 
     return { keys: this.keys, wantsToFire: this.wantsToFire };
   }
 
+  // Nearest other living tank by path distance through the maze (not
+  // straight-line) — consistent with "no bank shots"/pathfound-movement
+  // philosophy elsewhere in this AI: a straight-line-nearest opponent
+  // could be on the far side of a wall while a path-nearer one is actually
+  // closer to reach.
+  _nearestOpponent(tank, opponents, maze) {
+    const alive = opponents.filter((opponent) => !opponent.destroyed);
+    if (alive.length === 0) return null;
+
+    const dist = maze._bfsDistances([maze.worldToCell(tank.x, tank.y)]);
+
+    let nearest = null;
+    let nearestDist = Infinity;
+    for (const opponent of alive) {
+      const cell = maze.worldToCell(opponent.x, opponent.y);
+      const d = dist[cell.row][cell.col];
+      if (d >= 0 && d < nearestDist) {
+        nearestDist = d;
+        nearest = opponent;
+      }
+    }
+    return nearest || alive[0];
+  }
+
   // Decides WHAT to steer toward: always the next waypoint on a pathfound
-  // route through the maze grid, never a raw straight line to the player.
+  // route through the maze grid, never a raw straight line to the target.
   // A raw line can look clear (a thin sightline through a gap, or across
   // a dead-end alcove) while no walkable path actually follows it — that
   // mismatch is what drove the AI into dead ends before. Line of sight is

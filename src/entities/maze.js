@@ -355,16 +355,72 @@ class Maze {
     return null;
   }
 
-  // Two grid cells that are maximally distant from each other, measured by
-  // path distance through the maze (not straight-line), per GAME_SPEC.md
-  // section 3.3. Classic "maze diameter" technique: BFS from any cell to
-  // find the farthest cell A, then BFS from A to find the farthest cell
-  // from A — that pair is the maze's two most distant points.
+  // `count` grid cells that are mutually distant from each other, measured
+  // by path distance through the maze (not straight-line), per
+  // GAME_SPEC.md section 3.3. Iterative farthest-point selection: start
+  // from the maze's diameter endpoint (farthest cell from an arbitrary
+  // corner — for count=2 this alone reproduces the classic "maze
+  // diameter" pair), then repeatedly add whichever remaining cell is
+  // farthest from every already-chosen spawn (multi-source BFS), so
+  // additional spawns keep spreading out rather than clustering near the
+  // first pair.
   getSpawnPoints(count) {
-    const first = this._farthestFrom({ row: 0, col: 0 });
-    const second = this._farthestFrom(first);
-    const points = [this._cellCenter(first.row, first.col), this._cellCenter(second.row, second.col)];
-    return points.slice(0, count);
+    const chosen = [this._farthestFrom({ row: 0, col: 0 })];
+
+    while (chosen.length < count) {
+      const dist = this._bfsDistances(chosen);
+      let best = null;
+      for (let row = 0; row < this.rows; row++) {
+        for (let col = 0; col < this.cols; col++) {
+          if (dist[row][col] < 0) continue;
+          if (!best || dist[row][col] > dist[best.row][best.col]) best = { row, col };
+        }
+      }
+      if (!best) break; // shouldn't happen; the maze is always fully connected
+      chosen.push(best);
+    }
+
+    return chosen.map((cell) => this._cellCenter(cell.row, cell.col));
+  }
+
+  // Path distance (in cell steps) from every cell to its nearest source,
+  // via multi-source BFS. Cells unreachable from any source (shouldn't
+  // happen; the maze is always fully connected) are -1.
+  _bfsDistances(sources) {
+    const dist = [];
+    for (let row = 0; row < this.rows; row++) dist.push(new Array(this.cols).fill(-1));
+
+    const queue = [];
+    for (const source of sources) {
+      if (dist[source.row][source.col] === -1) {
+        dist[source.row][source.col] = 0;
+        queue.push(source);
+      }
+    }
+
+    let head = 0;
+    while (head < queue.length) {
+      const current = queue[head++];
+      const moves = [
+        ['top', -1, 0],
+        ['right', 0, 1],
+        ['bottom', 1, 0],
+        ['left', 0, -1]
+      ];
+      for (const [dir, dRow, dCol] of moves) {
+        const nRow = current.row + dRow;
+        const nCol = current.col + dCol;
+        if (
+          nRow >= 0 && nRow < this.rows && nCol >= 0 && nCol < this.cols &&
+          dist[nRow][nCol] === -1 && !this.cells[current.row][current.col][dir]
+        ) {
+          dist[nRow][nCol] = dist[current.row][current.col] + 1;
+          queue.push({ row: nRow, col: nCol });
+        }
+      }
+    }
+
+    return dist;
   }
 
   _farthestFrom(from) {

@@ -7,12 +7,14 @@ file before implementing any feature, rather than being re-told the rules.
 
 ## 1. Overview
 
-**Genre:** Top-down 2D maze tank combat, single-player vs AI.
+**Genre:** Top-down 2D maze tank combat. 1–3 local players and/or 0–3 AI
+opponents, free-for-all, in the same maze at once (see section 5).
 **Inspiration:** Tank Trouble (bouncing-bullet mechanic).
 **Platform:** Browser, HTML5, fully client-side, no backend.
 **Session length:** 1–5 minutes per match.
-**Core loop:** Pick difficulty → fight AI in a random maze → last tank
-standing wins → rematch or change difficulty.
+**Core loop:** Configure forces (how many players, how many AI, each AI's
+difficulty) on the Mission Briefing screen → free-for-all in a random maze
+→ last tank standing wins → rematch or reconfigure.
 
 ---
 
@@ -33,8 +35,8 @@ sprites stay crisp at any canvas size, never blurry.
 ### 3.1 Movement
 Classic tank-drive controls: forward/back moves along current facing
 direction, left/right rotates the tank. Acceleration and deceleration, not
-instant start/stop. Tank collides with maze walls and the opponent tank —
-cannot pass through either.
+instant start/stop. Tank collides with maze walls and every other tank on
+the field — cannot pass through any of them.
 
 ### 3.2 Shooting & Bullet Physics (the signature mechanic)
 - Tank fires in the direction its barrel currently faces.
@@ -52,9 +54,11 @@ cannot pass through either.
 ### 3.3 Maze Generation
 New random maze every match, using grid-based generation (recursive
 backtracking or Prim's algorithm). Mix of tight 1-tile corridors and a few
-2–3-tile open rooms. Both tanks spawn at randomized, maximally distant
-points — never adjacent at match start. Outer boundary wall contains all
-tanks and bullets.
+2–3-tile open rooms. All tanks in the match (up to 6) spawn at mutually
+distant points, chosen by iteratively picking whichever cell is farthest
+(by walkable path distance) from every already-chosen spawn — never
+adjacent at match start. Outer boundary wall contains all tanks and
+bullets.
 
 ---
 
@@ -79,36 +83,49 @@ this balance in any future power-up added.
 
 ---
 
-## 5. AI Opponent — 3 Difficulty Tiers
+## 5. AI Opponents — 3 Difficulty Tiers, 0–3 Simultaneous
 
-Selected on a pre-match screen (Easy / Medium / Hard).
+0–3 AI tanks per match, each independently set to Easy/Medium/Hard on the
+Mission Briefing screen (see section 6). Currently only Easy is
+implemented — Medium and Hard are selectable in the UI but disabled
+("Coming soon") until built, same treatment as any other not-yet-built
+feature in this doc.
+
+**Targeting (FFA):** every match is free-for-all (see section 1 and
+section 9) — there is no player-team/AI-team distinction, and a bullet
+hurts whatever tank it touches regardless of who fired it or who's
+driving the tank it hits. Each AI tank targets whichever other living tank
+(player-controlled or AI-controlled) is nearest by walkable path distance,
+re-evaluated every reaction tick alongside its normal re-pathing. If its
+current target is destroyed, it re-targets immediately rather than waiting
+for the next reaction tick.
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
-| **Easy** | Casually approaches the player (steers toward them, or a pathfound waypoint when out of sight); on hitting a wall it stops, turns, tries the new heading briefly, and reverses + retries a different direction if still stuck | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-aiming/re-pathing only — obstacle response and firing are immediate, see notes) | Ignores ~half the time |
+| **Easy** | Casually approaches its target (steers toward them, or a pathfound waypoint when out of sight); on hitting a wall it stops, turns, tries the new heading briefly, and reverses + retries a different direction if still stuck | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-aiming/re-pathing/re-targeting only — obstacle response and firing are immediate, see notes) | Ignores ~half the time |
 | **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
 | **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
 
 **Note:** Easy now also pathfinds around walls (added to fix it getting stuck leaning
-on a wall with no route to the player), so "pathfinding" no longer distinguishes
+on a wall with no route to its target), so "pathfinding" no longer distinguishes
 Medium/Hard from Easy. When Medium is built, it needs a different defining trait
 than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
 aiming, or actually using bank shots — to stay meaningfully harder than Easy.
 
-**Firing trigger (Easy):** fires as soon as the player has been continuously aimed-at
-and directly visible (unobstructed line of sight) for 0.5s — not a random chance
-anymore (the old ~50%-per-0.8s-tick roll felt too slow to get an opening shot off).
-"Accuracy" for Easy is effectively retired until a real aim-miss mechanic exists;
-Medium/Hard should define their own accuracy behavior when built. Still subject to
-the 1-bullet/1s-cooldown ammo limit below.
+**Firing trigger (Easy):** fires as soon as its current target has been continuously
+aimed-at and directly visible (unobstructed line of sight) for 0.5s — not a random
+chance anymore (the old ~50%-per-0.8s-tick roll felt too slow to get an opening shot
+off). "Accuracy" for Easy is effectively retired until a real aim-miss mechanic
+exists; Medium/Hard should define their own accuracy behavior when built. Still
+subject to the 1-bullet/1s-cooldown ammo limit below.
 
 **Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) reacts
-every frame, not on the ~0.8s reaction-delay cadence — that delay now only governs
-how often the AI reconsiders its overall target (its next pathfound waypoint), not
-how fast it notices a wall in front of it.
+every frame, not on the ~0.8s reaction-delay cadence — that delay only governs how
+often the AI reconsiders its target (nearest living tank) and its next pathfound
+waypoint, not how fast it notices a wall in front of it.
 
 **Movement direction (Easy):** always steers toward the next waypoint on a
-pathfound route through the maze grid — never a raw straight line to the player,
+pathfound route through the maze grid — never a raw straight line to its target,
 even when one looks clear. A straight line can look open (e.g. a sightline across
 a dead-end alcove) while no walkable path actually follows it; steering at it
 anyway is what drove the AI into dead ends. This mirrors how the actual Tank
@@ -125,42 +142,78 @@ bullets at close range.
 ## 6. Screens / Flow
 
 1. **Title Screen** — logo, Play button, idle background animation.
-2. **Difficulty Select** — Easy / Medium / Hard buttons with short
-   description under each.
-3. **Match Screen** — maze + both tanks + power-up crates, small HUD
-   (current weapon icon + ammo count, difficulty label).
-4. **Result Screen** — Victory/Defeat banner, buttons: Rematch (new random
-   maze, same difficulty), Change Difficulty, Back to Title.
+2. **Mission Briefing** — configure forces before battle:
+   - Allied Forces: 1P / 2P / 3P toggle picks how many local human players.
+     Each active player slot shows its control scheme (Move Forward/Back,
+     Turn Left/Right, Fire), rebindable directly from this screen (click a
+     key box, press the new key — same swap-conflict rule as the pause
+     menu's Change Controls, extended across every player's bindings so no
+     two players can ever share a key).
+   - Enemy Forces: 0P / 1 / 2 / 3 toggle picks how many AI tanks. Each
+     active AI slot independently picks Easy/Medium/Hard (Medium/Hard
+     disabled — "Coming soon," same as everywhere else in this doc).
+     0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
+     match would have nothing to fight).
+   - "Battle!" button starts the match with the configured forces.
+3. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
+   players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
+   HUD (current weapon icon + ammo count per player — see HUD notes below
+   for the multi-player case).
+4. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
+   player, red if the winner is an AI tank; "Draw" in the rare simultaneous-
+   kill case — see section 9), buttons:
+   Rematch (new random maze, same configuration), Change Difficulty (back
+   to Mission Briefing — the button keeps its original name from the
+   single-AI era even though it now reconfigures the whole match, not just
+   difficulty), Back to Title.
 
 ---
 
 ## 7. Controls
 
-- **Move:** WASD by default (tank-drive, not free 8-way strafing) — fully
-  rebindable, see Pause Menu below. Arrow Keys are no longer a fixed
-  secondary scheme; any key can be bound to any action.
-- **Fire:** Spacebar by default — also rebindable.
-- **Pause:** Esc opens the Pause Menu, and also acts as the universal
-  cancel/back key within it. Esc itself cannot be rebound.
+Each local player has their own independent control scheme — move
+forward/back, turn left/right, and fire — all rebindable, plus one Pause
+key shared by the whole match (not per-player). Default schemes, assigned
+by player slot:
+
+| Player | Forward | Backward | Left | Right | Fire |
+|---|---|---|---|---|---|
+| P1 | W | S | A | D | Spacebar |
+| P2 | ↑ | ↓ | ← | → | Enter |
+| P3 | I | K | J | L | P |
+
+- **Move:** tank-drive (not free 8-way strafing), per-player defaults above.
+- **Fire:** per-player defaults above.
+- **Pause:** Esc, shared by the whole match (not per-player) — opens the
+  Pause Menu, and also acts as the universal cancel/back key within it.
+  Esc itself can never be assigned to any action.
+- Every action's key must be unique across the *entire* match — rebinding
+  one player's key to something another player (or Pause) already uses
+  swaps the two instead of letting one physical key double up.
 
 ### Pause Menu (opened by Esc during a match)
 
 1. **Resume** — closes the menu, match continues exactly where it left off.
-2. **Rematch*** — new random maze, same difficulty.
-3. **Change Difficulty*** — abandons the match, returns to Difficulty Select.
-4. **Change Controls** — full key rebinding screen (see below). No confirmation
-   needed; rebinding doesn't affect the current match.
+2. **Rematch*** — new random maze, same configuration (players/AI/difficulties).
+3. **Change Difficulty*** — abandons the match, returns to Mission Briefing.
+4. **Change Controls** — full key rebinding screen, covering every active
+   player's scheme (see below). No confirmation needed; rebinding doesn't
+   affect the current match.
 5. **Quit to Title*** — abandons the match, returns to the Title Screen.
 
 \* Requires a Yes/No confirmation (abandons the in-progress match) before
 proceeding.
 
-**Change Controls screen:** lists every bindable action (Move Forward, Move
-Backward, Turn Left, Turn Right, Fire, Pause) with its current key. Click an
-action, then press any key to bind it. If that key was already bound to a
-different action, the two actions swap keys — no action is ever left
-unbound, no key is ever shared by two actions. Esc cancels an in-progress
-rebind instead of being assignable.
+**Change Controls screen:** lists every bindable action for every active
+player (Move Forward, Move Backward, Turn Left, Turn Right, Fire — times
+however many players are in the match). Pause is not listed — it's fixed to
+Esc and never rebindable (see above). Click an action, then press any key
+to bind it. If that key was already bound to a different action — that
+player's own, or a different player's — the two actions swap keys — no
+action is ever left unbound, no key is ever shared by two actions. Esc cancels an
+in-progress rebind instead of being assignable. The same rebinding UI is
+also reachable directly from the Mission Briefing screen, before a match
+starts.
 
 ---
 
@@ -174,9 +227,16 @@ Mute toggle in pause menu.
 
 ## 9. Win/Lose Condition
 
-Match ends immediately when either tank is hit by any projectile or mine.
-Result Screen shows within 1 second of the death animation finishing. No
-scoring/rounds system in v1 — single match, then rematch/reset.
+Free-for-all, always — there is no team distinction between players and AI
+(see section 5's Targeting note); a bullet destroys whatever tank it
+touches regardless of who fired it. A destroyed tank is removed from play
+but the match continues; it ends when exactly one tank remains, and that
+tank's controller (a specific player, or a specific AI) wins. (Edge case:
+if the last two-or-more tanks are destroyed in the same instant — e.g. a
+mutual point-blank kill — treat it as a draw; no player/AI is declared the
+winner.) Result Screen shows within 1 second of the last death animation
+finishing. No scoring/rounds system in v1 — single match, then
+rematch/reset.
 
 ---
 
@@ -194,11 +254,13 @@ scoring/rounds system in v1 — single match, then rematch/reset.
 
 Do not add without an explicit decision to expand scope:
 - Online multiplayer / matchmaking
-- Local 2–3 player mode (planned for a later phase, not v1)
 - Ranking/rank-points system
 - Player accounts, saves, or persistent stats
 - Multiple maze themes/biomes
 - Mobile touch controls
+
+Local 2–3 player mode was previously listed here as out of scope for v1;
+that decision was explicitly reversed — see section 1 and section 5.
 
 ---
 
