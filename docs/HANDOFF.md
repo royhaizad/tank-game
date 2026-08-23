@@ -27,29 +27,21 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
 - **Menus**: Title, Mission Briefing, Result, pause menu (Esc) with Y/N confirmations
   and full key rebinding.
+- **Session stats** (`feat/session-stats`, not yet merged to `main`): Win/Kill/Death
+  tallies per tank slot (P1-3/AI1-3), in-session only (see GAME_SPEC.md section 9.1).
+  HUD shows per-player icon+number only; Result screen and a new Mission Briefing
+  "Session Stats" button (shown once stats exist, opens a modal) both show a full
+  scoreboard — icon + word per column, colored by stat type (green/red/white) —
+  plus a Reset Stats button. Self-kills count as a death but not a kill.
 
-## Planned next — two independent sessions
-
-Both branch off `main`. They touch different files, so they can't conflict.
+## Planned next
 
 ### Session A — `chore/bullet-tuning`
 Tune existing bullet values only, no new mechanics. Current values in
 `src/entities/bullet.js`: speed 320 px/s, radius 3px, maxLifetime 6s, maxBounces 5.
 Per-tank fire limits live in `src/entities/tank.js` (player: 5 in flight, no cooldown;
 AI overridden in `src/main.js` to 1 + 1s cooldown). Update GAME_SPEC.md section 3.2 if
-any spec'd number changes.
-
-### Session B — `feat/session-stats`
-Kill / Death / Win counters per tank, accumulating across matches.
-Decisions already made:
-- **Scope**: these are *in-session tallies*, NOT a ranking system. GAME_SPEC.md line
-  ~238 ("No scoring/rounds system in v1") must be reversed to allow this; the
-  "Ranking/rank-points system" exclusion in section 11 **stays** out of scope.
-- **Reset**: only an explicit Reset button clears the tally. Stats survive Rematch,
-  Change Difficulty, *and* Back to Title. Page refresh clears them (no persistence —
-  no localStorage, per the no-backend/no-saves rule).
-- **Surfaces**: affects both multiplayer scoring and the GUI (HUD `src/ui/hud.js`
-  and/or Result screen `src/ui/menu.js`).
+any spec'd number changes. Branch off `main`.
 
 ## Known gaps
 

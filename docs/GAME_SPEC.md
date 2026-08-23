@@ -155,6 +155,10 @@ bullets at close range.
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
    - "Battle!" button starts the match with the configured forces.
+   - Session Stats button (top-right corner) — only shown once at least one
+     match has been tallied this session (see section 9.1); opens a modal
+     overlay with the same scoreboard and Reset Stats button as the Result
+     Screen, plus a Close button to return to Briefing.
 3. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
    players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
    HUD (current weapon icon + ammo count per player — see HUD notes below
@@ -235,8 +239,39 @@ tank's controller (a specific player, or a specific AI) wins. (Edge case:
 if the last two-or-more tanks are destroyed in the same instant — e.g. a
 mutual point-blank kill — treat it as a draw; no player/AI is declared the
 winner.) Result Screen shows within 1 second of the last death animation
-finishing. No scoring/rounds system in v1 — single match, then
-rematch/reset.
+finishing.
+
+### 9.1 Session Stats (Win/Kill/Death tallies)
+
+Each tank slot (P1/P2/P3, AI1/AI2/AI3) accumulates Wins, Kills, and Deaths
+across matches in the current browser session — an in-session tally, NOT a
+persistent ranking or rank-points system (that stays out of scope, see
+section 11). Tracked per slot label, not per physical player, so
+reconfiguring forces (e.g. dropping from 3 players to 2) keeps each
+surviving slot's history. Displayed in Win/Kill/Death order everywhere,
+each with a dedicated icon and a readable word: 🏆 Win, 🔫 Kill, 💀 Death
+(the compact in-match HUD is the one exception — icon + number only, no
+words, to fit the space).
+
+- A kill is credited to whichever tank's bullet destroyed another tank.
+  Self-kill via your own ricochet (section 3.2) counts as a death but never
+  as a kill against yourself.
+- A win is credited to the last tank standing; a draw (simultaneous mutual
+  kill) credits no one.
+- Stats survive Rematch, Change Difficulty, and Back to Title. Only an
+  explicit Reset Stats button (on the Result Screen or the Briefing stats
+  modal — see section 6) clears them. A page refresh also clears them,
+  since nothing is persisted — no localStorage, per the no-backend/no-saves
+  rule (section 10).
+- Scoreboard tables (Result Screen and the Briefing stats modal) color
+  each stat by type rather than by tank: Win green, Kill red, Death white
+  (white for contrast against this game's uniformly dark backgrounds — not
+  computed dynamically, since nothing here uses a light background). The
+  tank name itself is plain white, not the tank's usual color.
+- Shown in the in-match HUD (`src/ui/hud.js`, per-player, icon + number
+  only) and as a full scoreboard on the Result Screen and the Briefing
+  stats modal (`src/ui/menu.js`, all tanks used this session, both with
+  the Reset Stats button).
 
 ---
 
@@ -254,7 +289,8 @@ rematch/reset.
 
 Do not add without an explicit decision to expand scope:
 - Online multiplayer / matchmaking
-- Ranking/rank-points system
+- Ranking/rank-points system (distinct from the in-session Kill/Death/Win
+  tallies in section 9.1, which reset on refresh and never persist)
 - Player accounts, saves, or persistent stats
 - Multiple maze themes/biomes
 - Mobile touch controls

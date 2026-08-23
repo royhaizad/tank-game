@@ -17,8 +17,25 @@ const config = {
 let winner = null; // { label, kind } of whoever's left standing, or null for a draw
 let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitle', while screen === 'pauseConfirm'
 let awaitingRebind = null; // { playerIndex, action } while waiting for a keypress, on briefing or controls screens
+let briefingStatsOpen = false; // whether the Session Stats modal is showing on top of the briefing screen
 
 let maze, matchTanks, bullets;
+
+// Session-only Kill/Death/Win tallies per HANDOFF.md "Session B" decisions:
+// in-session tallies (not a ranking system), keyed by slot label (P1/AI1/...)
+// so they survive Rematch, Change Difficulty, and Back to Title. Only an
+// explicit Reset button clears them; a page refresh also clears them since
+// nothing is persisted (no localStorage, per the no-backend/no-saves rule).
+const stats = {};
+
+function ensureStats(label) {
+  if (!stats[label]) stats[label] = { kills: 0, deaths: 0, wins: 0 };
+  return stats[label];
+}
+
+function resetStats() {
+  for (const label in stats) delete stats[label];
+}
 
 function activeBulletCount(tank) {
   return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
@@ -45,6 +62,8 @@ function startMatch() {
     tank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
     matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai: new EasyAI() });
   }
+
+  matchTanks.forEach((entry) => ensureStats(entry.label));
 
   bullets = [];
   winner = null;
@@ -106,6 +125,13 @@ function updateMatch(dt) {
       if (dx * dx + dy * dy <= hitDistance * hitDistance) {
         entry.tank.destroyed = true;
         bullet.alive = false;
+        ensureStats(entry.label).deaths++;
+        // Self-kill via own ricochet is intentional (GAME_SPEC.md section
+        // 3.2) but doesn't award the shooter a kill against themselves.
+        if (bullet.owner !== entry.tank) {
+          const killer = matchTanks.find((other) => other.tank === bullet.owner);
+          if (killer) ensureStats(killer.label).kills++;
+        }
       }
     });
   });
@@ -115,6 +141,7 @@ function updateMatch(dt) {
   const survivors = matchTanks.filter((entry) => !entry.tank.destroyed);
   if (survivors.length <= 1) {
     winner = survivors.length === 1 ? { label: survivors[0].label, kind: survivors[0].kind } : null;
+    if (winner) ensureStats(winner.label).wins++;
     screen = 'result';
   }
 }
@@ -135,7 +162,7 @@ function drawMatchScene() {
   bullets.forEach((bullet) => bullet.draw(ctx));
 
   const playerEntries = matchTanks.filter((entry) => entry.kind === 'player');
-  hud.draw(ctx, canvas, playerEntries, activeBulletCount);
+  hud.draw(ctx, canvas, playerEntries, activeBulletCount, stats);
 }
 
 function confirmMessage(action) {
@@ -201,12 +228,25 @@ function handleBriefingClick(clicked) {
     screen = 'title';
   } else if (clicked === 'battle' && config.playerCount + config.aiCount >= 2) {
     startMatch();
+  } else if (clicked === 'viewStats') {
+    awaitingRebind = null; // don't leave a hidden rebind capturing keys behind the modal
+    briefingStatsOpen = true;
+  } else if (clicked === 'closeStats') {
+    briefingStatsOpen = false;
   }
 }
 
 function handleMenuClick() {
   const clicked = menu.consumeClick();
   if (!clicked) return;
+
+  // Reachable from both the Result screen scoreboard and the Briefing
+  // stats modal — same button id, same effect, so handle it once here
+  // regardless of which screen it was clicked from.
+  if (clicked === 'resetStats') {
+    resetStats();
+    return;
+  }
 
   if (screen === 'title' && clicked === 'play') {
     screen = 'briefing';
@@ -254,7 +294,8 @@ startLoop(
     if (screen === 'title') {
       menu.drawTitleScreen(ctx, canvas);
     } else if (screen === 'briefing') {
-      menu.drawBriefingScreen(ctx, canvas, config, awaitingRebind);
+      menu.drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats);
+      if (briefingStatsOpen) menu.drawStatsModal(ctx, canvas, stats);
     } else if (screen === 'match') {
       drawMatchScene();
     } else if (screen === 'paused') {
@@ -267,7 +308,7 @@ startLoop(
     } else if (screen === 'controls') {
       menu.drawControlsScreen(ctx, canvas, config.playerCount, awaitingRebind);
     } else if (screen === 'result') {
-      menu.drawResultScreen(ctx, canvas, winner);
+      menu.drawResultScreen(ctx, canvas, winner, stats);
     }
   }
 );
