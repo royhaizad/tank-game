@@ -27,30 +27,21 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
 - **Menus**: Title, Mission Briefing, Result, pause menu (Esc) with Y/N confirmations
   and full key rebinding.
+- **Bullet tuning**: bullet speed 160 px/s (was 320, now just faster than a tank's
+  140 px/s top speed instead of much faster — easier to react to and dodge). Player
+  base cannon: tap fires instantly, holding the fire key auto-fires every 0.5s
+  (`PLAYER_AUTO_FIRE_INTERVAL` in `src/main.js`), still capped at 5 in flight. AI
+  unchanged (1 in flight + 1s cooldown).
+- **Session stats**: Win/Kill/Death tallies per tank slot (P1-3/AI1-3), in-session
+  only (see GAME_SPEC.md section 9.1). HUD shows per-player icon+number only; Result
+  screen and a new Mission Briefing "Session Stats" button (shown once stats exist,
+  opens a modal) both show a full scoreboard — icon + word per column, colored by
+  stat type (green/red/white) — plus a Reset Stats button. Self-kills count as a
+  death but not a kill.
 
-## Planned next — two independent sessions
+## Planned next
 
-Both branch off `main`. They touch different files, so they can't conflict.
-
-### Session A — `chore/bullet-tuning` (done, pending merge to `main`)
-Tuned bullet speed and added player auto-fire. New values in
-`src/entities/bullet.js`: speed 160 px/s (was 320), radius 3px, maxLifetime 6s,
-maxBounces 5 unchanged. Player fire (`src/main.js`): tap still fires instantly;
-holding the fire key now auto-fires every 0.5s (`PLAYER_AUTO_FIRE_INTERVAL`),
-still capped at 5 bullets in flight. AI unchanged (1 in flight + 1s cooldown,
-overridden in `src/main.js`). GAME_SPEC.md section 3.2 updated to match.
-
-### Session B — `feat/session-stats`
-Kill / Death / Win counters per tank, accumulating across matches.
-Decisions already made:
-- **Scope**: these are *in-session tallies*, NOT a ranking system. GAME_SPEC.md line
-  ~238 ("No scoring/rounds system in v1") must be reversed to allow this; the
-  "Ranking/rank-points system" exclusion in section 11 **stays** out of scope.
-- **Reset**: only an explicit Reset button clears the tally. Stats survive Rematch,
-  Change Difficulty, *and* Back to Title. Page refresh clears them (no persistence —
-  no localStorage, per the no-backend/no-saves rule).
-- **Surfaces**: affects both multiplayer scoring and the GUI (HUD `src/ui/hud.js`
-  and/or Result screen `src/ui/menu.js`).
+Nothing currently queued — see Known gaps below for candidates.
 
 ## Known gaps
 

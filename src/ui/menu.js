@@ -7,6 +7,15 @@ class Menu {
   static PLAYER_COLORS = ['#3b6ea5', '#3f9142', '#8a3ba5']; // blue, green, purple
   static AI_COLORS = ['#a53b3b', '#c97a2e', '#7a1f6b']; // red, orange, magenta-red
 
+  // Session stats display (GAME_SPEC.md section 9.1): icon + readable label
+  // per stat, and a color per stat type (not per tank) — Win green, Kill
+  // red, Death white. Every background this game draws is dark, so Death's
+  // "invert for contrast" is just hardcoded white for now.
+  static STAT_ICONS = { wins: '🏆', kills: '🔫', deaths: '💀' };
+  static STAT_LABELS = { wins: 'Win', kills: 'Kill', deaths: 'Death' };
+  static STAT_COLORS = { wins: '#4caf50', kills: '#e74c3c', deaths: '#ffffff' };
+  static SCORE_LABEL_COLOR = '#ffffff';
+
   constructor(canvas) {
     this.canvas = canvas;
     this.buttons = [];
@@ -55,7 +64,11 @@ class Menu {
   // difficulty (Medium/Hard disabled — not built yet), and each player's
   // control scheme (rebindable inline, same as the pause menu's Change
   // Controls). `config` is { playerCount, aiCount, aiDifficulties[3] }.
-  drawBriefingScreen(ctx, canvas, config, awaitingRebind) {
+  // stats: label -> { kills, deaths, wins } session tallies (src/main.js) —
+  // only used here to decide whether the Session Stats button (top-right,
+  // opens drawStatsModal) is worth showing; it's hidden until at least one
+  // match has been tallied this session, per GAME_SPEC.md section 9.1.
+  drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
     this.buttons = [];
 
@@ -100,6 +113,12 @@ class Menu {
     this.buttons.push(backButton, battleButton);
     this._drawButton(ctx, backButton);
     this._drawButton(ctx, battleButton);
+
+    if (stats && Object.keys(stats).length > 0) {
+      const statsButton = { id: 'viewStats', x: canvas.width - 132, y: 8, w: 124, h: 22, label: 'Session Stats' };
+      this.buttons.push(statsButton);
+      this._drawSmallButton(ctx, statsButton);
+    }
   }
 
   _drawCountSelector(ctx, centerX, title, optionLabels, current, idPrefix, isDisabled) {
@@ -231,14 +250,17 @@ class Menu {
 
   // winner: { label, kind: 'player'|'ai' } for whoever's left standing, or
   // null for a draw (simultaneous mutual kill), per GAME_SPEC.md section 9.
-  drawResultScreen(ctx, canvas, winner) {
+  // stats: label -> { kills, deaths, wins } session tallies (src/main.js),
+  // shown as a scoreboard with a Reset button per HANDOFF.md "Session B" —
+  // in-session tallies only, cleared solely by that button (or a refresh).
+  drawResultScreen(ctx, canvas, winner, stats) {
     const bg = !winner ? '#3a3a3a' : winner.kind === 'player' ? '#1e4a2c' : '#4a1e1e';
     this._drawBackground(ctx, canvas, bg);
 
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.font = 'bold 30px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(winner ? `${winner.label} Wins!` : 'Draw', canvas.width / 2, 90);
+    ctx.fillText(winner ? `${winner.label} Wins!` : 'Draw', canvas.width / 2, 45);
 
     const options = [
       { id: 'rematch', label: 'Rematch' },
@@ -248,14 +270,102 @@ class Menu {
 
     this.buttons = options.map((opt, i) => ({
       id: opt.id,
-      x: canvas.width / 2 - 100,
-      y: 150 + i * 74,
-      w: 200,
-      h: 56,
+      x: canvas.width / 2 - 90,
+      y: 75 + i * 50,
+      w: 180,
+      h: 42,
       label: opt.label
     }));
 
     this.buttons.forEach((btn) => this._drawButton(ctx, btn));
+
+    const centerX = canvas.width / 2;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Session Stats', centerX, 245);
+
+    const tableBottom = this._drawScoreTable(ctx, canvas, stats, 265);
+    const resetButton = { id: 'resetStats', x: centerX - 65, y: tableBottom + 20, w: 130, h: 28, label: 'Reset Stats' };
+    this.buttons.push(resetButton);
+    this._drawButton(ctx, resetButton);
+  }
+
+  // Full-screen overlay on top of whichever screen is already drawn (same
+  // "don't clear the canvas first" pattern as drawPauseMenu), reachable
+  // only from Mission Briefing via the Session Stats button, which is
+  // itself only shown once stats exist (see drawBriefingScreen). Lets you
+  // check/reset session tallies before a match without leaving Briefing.
+  drawStatsModal(ctx, canvas, stats) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const centerX = canvas.width / 2;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Session Stats', centerX, 60);
+
+    this.buttons = [];
+    const tableBottom = this._drawScoreTable(ctx, canvas, stats, 100);
+
+    const resetButton = { id: 'resetStats', x: centerX - 90, y: tableBottom + 24, w: 180, h: 40, label: 'Reset Stats' };
+    const closeButton = { id: 'closeStats', x: centerX - 90, y: tableBottom + 74, w: 180, h: 40, label: 'Close' };
+    this.buttons.push(resetButton, closeButton);
+    this._drawButton(ctx, resetButton);
+    this._drawButton(ctx, closeButton);
+  }
+
+  // Shared table renderer for the Result screen and the Briefing stats
+  // modal: header row is icon + readable word per stat (Win/Kill/Death),
+  // colored by stat type (green/red/white) rather than by tank, per
+  // GAME_SPEC.md section 9.1. Order matches the on-map label scheme
+  // (P1/P2/P3 players, AI1/AI2/AI3 AI), skipping slots never used this
+  // session. Returns the y coordinate of the last content drawn, so
+  // callers can position their own buttons below it.
+  _drawScoreTable(ctx, canvas, stats, startY) {
+    const order = ['P1', 'P2', 'P3', 'AI1', 'AI2', 'AI3'];
+    const labels = order.filter((label) => stats[label]);
+    const centerX = canvas.width / 2;
+    const colX = { label: centerX - 150, wins: centerX - 30, kills: centerX + 30, deaths: centerX + 90 };
+    let y = startY;
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Tank', colX.label, y);
+    ctx.fillStyle = Menu.STAT_COLORS.wins;
+    ctx.fillText(`${Menu.STAT_ICONS.wins} ${Menu.STAT_LABELS.wins}`, colX.wins, y);
+    ctx.fillStyle = Menu.STAT_COLORS.kills;
+    ctx.fillText(`${Menu.STAT_ICONS.kills} ${Menu.STAT_LABELS.kills}`, colX.kills, y);
+    ctx.fillStyle = Menu.STAT_COLORS.deaths;
+    ctx.fillText(`${Menu.STAT_ICONS.deaths} ${Menu.STAT_LABELS.deaths}`, colX.deaths, y);
+
+    if (labels.length === 0) {
+      y += 20;
+      ctx.fillStyle = '#bbb';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('No stats yet', centerX, y);
+      return y;
+    }
+
+    ctx.font = '12px sans-serif';
+    labels.forEach((label) => {
+      y += 18;
+      const s = stats[label];
+      ctx.textAlign = 'left';
+      ctx.fillStyle = Menu.SCORE_LABEL_COLOR;
+      ctx.fillText(label, colX.label, y);
+      ctx.fillStyle = Menu.STAT_COLORS.wins;
+      ctx.fillText(String(s.wins), colX.wins, y);
+      ctx.fillStyle = Menu.STAT_COLORS.kills;
+      ctx.fillText(String(s.kills), colX.kills, y);
+      ctx.fillStyle = Menu.STAT_COLORS.deaths;
+      ctx.fillText(String(s.deaths), colX.deaths, y);
+    });
+
+    return y;
   }
 
   // Overlaid on top of a frozen match scene main.js already drew this
@@ -368,6 +478,23 @@ class Menu {
   _drawBackground(ctx, canvas, color) {
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Compact utility button (smaller font than _drawButton) for corner
+  // controls like Briefing's Session Stats button, where a full-size
+  // button would overwhelm the layout.
+  _drawSmallButton(ctx, btn) {
+    ctx.fillStyle = '#3b6ea5';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = '#000';
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    ctx.textBaseline = 'alphabetic';
   }
 
   _drawButton(ctx, btn) {
