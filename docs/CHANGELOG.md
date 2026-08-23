@@ -4,6 +4,7 @@ One-line entries per game mechanic/feature change, newest first. See `CLAUDE.md`
 "Keeping Docs in Sync" for when to add to this file.
 - 2026-08-23 — Session stats scoreboard (Result screen + new Mission Briefing "Session Stats" modal, shown only once stats exist) now reorders columns to Win/Kill/Death with an icon + readable word per column, colored by stat type (green/red/white) instead of by tank; the compact in-match HUD stays icon + number only.
 - 2026-08-23 — Added in-session Kill/Death/Win tallies per tank slot (HUD shows per-player K/D, Result screen shows a full scoreboard with a Reset Stats button); survives Rematch/Change Difficulty/Back to Title, clears on refresh or Reset — not a persistent ranking system.
+- 2026-08-23 — Bullet tuning: slowed bullets from 320 px/s to 160 px/s (just faster than tank top speed, easier to react to); player base cannon now auto-fires every 0.5s while the fire key is held, still capped at 5 in flight (previously one shot per press only, no cooldown).
 - 2026-08-23 — Merged all feature branches into main: main is now current and playable (movement, bullets, maze, Easy AI, menus, local multiplayer).
 
 - 2026-08-19 — CLAUDE.md updated with "Keeping Docs in Sync" workflow rules (docs/GAME_SPEC.md, this changelog, and CLAUDE.md itself must be kept current with mechanic changes).

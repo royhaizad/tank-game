@@ -27,21 +27,21 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
 - **Menus**: Title, Mission Briefing, Result, pause menu (Esc) with Y/N confirmations
   and full key rebinding.
-- **Session stats** (`feat/session-stats`, not yet merged to `main`): Win/Kill/Death
-  tallies per tank slot (P1-3/AI1-3), in-session only (see GAME_SPEC.md section 9.1).
-  HUD shows per-player icon+number only; Result screen and a new Mission Briefing
-  "Session Stats" button (shown once stats exist, opens a modal) both show a full
-  scoreboard — icon + word per column, colored by stat type (green/red/white) —
-  plus a Reset Stats button. Self-kills count as a death but not a kill.
+- **Bullet tuning**: bullet speed 160 px/s (was 320, now just faster than a tank's
+  140 px/s top speed instead of much faster — easier to react to and dodge). Player
+  base cannon: tap fires instantly, holding the fire key auto-fires every 0.5s
+  (`PLAYER_AUTO_FIRE_INTERVAL` in `src/main.js`), still capped at 5 in flight. AI
+  unchanged (1 in flight + 1s cooldown).
+- **Session stats**: Win/Kill/Death tallies per tank slot (P1-3/AI1-3), in-session
+  only (see GAME_SPEC.md section 9.1). HUD shows per-player icon+number only; Result
+  screen and a new Mission Briefing "Session Stats" button (shown once stats exist,
+  opens a modal) both show a full scoreboard — icon + word per column, colored by
+  stat type (green/red/white) — plus a Reset Stats button. Self-kills count as a
+  death but not a kill.
 
 ## Planned next
 
-### Session A — `chore/bullet-tuning`
-Tune existing bullet values only, no new mechanics. Current values in
-`src/entities/bullet.js`: speed 320 px/s, radius 3px, maxLifetime 6s, maxBounces 5.
-Per-tank fire limits live in `src/entities/tank.js` (player: 5 in flight, no cooldown;
-AI overridden in `src/main.js` to 1 + 1s cooldown). Update GAME_SPEC.md section 3.2 if
-any spec'd number changes. Branch off `main`.
+Nothing currently queued — see Known gaps below for candidates.
 
 ## Known gaps
 
