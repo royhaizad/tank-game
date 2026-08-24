@@ -51,7 +51,10 @@ the field — cannot pass through any of them.
   Holding the fire key down auto-fires a new bullet every 0.5s for as
   long as it's held (and the 5-bullet cap allows it) — releasing and
   re-tapping always fires instantly again, the 0.5s pacing only applies
-  between repeat shots while held. Firing is also capped by the 5-bullet
+  between repeat shots while held. That 0.5s is the *base cannon's*
+  hold-to-repeat rate; an equipped power-up sets its own (0.09s for the
+  gatling, and no auto-fire at all for the one-shot weapons, which need a
+  fresh keypress each time) — see section 4. Firing is also capped by the 5-bullet
   cap regardless of tap or hold. AI opponents use a stricter limit
   instead — see section 5.
 - Bullet speed is 160 px/s — noticeably faster than a tank's own top
@@ -72,22 +75,42 @@ bullets.
 
 ## 4. Power-Ups
 
-Crates spawn on random empty floor tiles every 8–15 seconds (max 1–2
-active on the map at once). Driving over a crate swaps the current weapon;
-it reverts to the base cannon once ammo runs out.
+Crates spawn on random empty floor tiles every 3–7 seconds. The live-crate
+cap is rolled once per match between 1 and 4, so some matches stay scarce
+and weapon-hungry while others are a scramble. A crate never spawns on a
+cell a tank is already standing on (that would read as a free pickup
+rather than something to drive for). Driving over a crate swaps the
+current weapon; it reverts to the base cannon once ammo runs out — the
+base cannon has infinite ammo, so a tank is never left unable to shoot.
+All power-up state resets every match (see section 10).
 
-| Power-Up | Effect |
-|---|---|
-| **Gatling Gun** | Fires continuously while held, high rate, ~15 rounds total, normal bounce physics per bullet |
-| **Shotgun** | 5-shot spread in a narrow cone, shorter range, 3 total shots |
-| **Homing Missile** | Travels straight 2 seconds, then curves toward nearest tank (can target its own shooter), 1 shot |
-| **Shield** | Deflects/absorbs incoming bullets for 6 seconds, visible bubble sprite; own reflected shot can still kill the shielded tank |
-| **Mine** | Drops a trap, invisible after 1 second, explodes when the OTHER tank drives over it, 3 mines total |
-| **Laser** | Instant-hit straight beam, dotted aim-preview line before firing, passes through 1 thin wall, stops at thick outer walls, 1 shot |
+| Power-Up | Effect | Ammo |
+|---|---|---|
+| **Gatling Gun** | Fires continuously while held (~0.09s between rounds, so a held burst empties in ~1.4s), normal bounce physics per bullet, all 15 rounds can be in flight at once | 15 rounds |
+| **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.8s (~2 cells) | 3 shots |
+| **Homing Missile** | Travels straight 1 second, then curves toward the nearest tank at a capped turn rate — nearest explicitly includes its own shooter, so an overshoot can come back for you | 1 shot |
+| **Shield** | Visible bubble for 6 seconds that deflects other tanks' bullets off its surface (mirror angle, counts as a bounce) and absorbs a laser beam. Not a weapon: picking it up grants the bubble and leaves the tank on its base cannon. Your OWN shot still kills you through your own shield | — |
+| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner, kills ANY tank that touches it. Won't kill its own dropper until that tank has driven clear of it once — otherwise dropping one while stationary is just suicide — but will kill them if they drive back over it | 3 mines |
+| **Laser** | Instant-hit straight beam. Passes through exactly 1 thin interior wall, stopped dead by the thick outer boundary. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped; firing locks the origin and angle, then charges 0.5s before the beam lands, so turning to track a target after committing does nothing | 1 shot |
 
 **Design rule:** every power-up trades extra power for a real risk
 (self-damage potential, limited range, low ammo, or setup delay). Preserve
-this balance in any future power-up added.
+this balance in any future power-up added. Which drawback each one carries:
+gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
+yourself; shotgun — useless past ~2 cells; missile — homes on the nearest
+tank, shooter included; shield — 6s only, and never protects against your
+own ricochet; mine — invisible to you too, and lethal to you on the way
+back; laser — a telegraphed aim line plus a locked-in 0.5s wind-up.
+
+**Ammo/rate overrides:** a picked-up weapon may override the tank's own
+firing limits (in-flight bullet cap, cooldown, and the hold-to-repeat
+interval) for as long as it's equipped; on revert the tank returns to its
+own base limits, which differ for players and AI (sections 3.2 and 5).
+
+**AI and crates:** Easy AI does not seek crates out — it picks up whatever
+it happens to drive over and then uses that weapon through the same firing
+path players use. Actively contesting pickups is a Medium/Hard trait (see
+section 5) and isn't built yet.
 
 ---
 
@@ -199,7 +222,11 @@ bullets at close range.
 3. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
    players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
    HUD (current weapon icon + ammo count per player — see HUD notes below
-   for the multi-player case).
+   for the multi-player case). Per player the HUD shows a weapon icon, the
+   weapon name, and either shots remaining (a picked-up weapon) or bullets
+   in flight (the base cannon, which never runs out), plus a 🛡️ countdown
+   while a shield is up. Weapon icons are placeholder color swatches until
+   the `icon_*` sprites land.
 4. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
    player, red if the winner is an AI tank; "Draw" in the rare simultaneous-
    kill case — see section 9), buttons:

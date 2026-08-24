@@ -31,5 +31,30 @@ const AudioEngine = {
 
     osc.start(now);
     osc.stop(now + 0.05);
+  },
+
+  // Power-up pickup chime, per GAME_SPEC.md section 8 — a quick two-note
+  // rise so a crate grab is audible even when it happens off to the side
+  // of where you're looking.
+  playPickupChime() {
+    const ctx = this._getContext();
+    const now = ctx.currentTime;
+
+    [[660, 0], [990, 0.07]].forEach(([freq, offset]) => {
+      const start = now + offset;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.2, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.13);
+    });
   }
 };

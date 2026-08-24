@@ -39,9 +39,10 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   and full key rebinding.
 - **Bullet tuning**: bullet speed 160 px/s (was 320, now just faster than a tank's
   140 px/s top speed instead of much faster — easier to react to and dodge). Player
-  base cannon: tap fires instantly, holding the fire key auto-fires every 0.5s
-  (`PLAYER_AUTO_FIRE_INTERVAL` in `src/main.js`), still capped at 5 in flight. AI
-  unchanged (1 in flight + 1s cooldown).
+  base cannon: tap fires instantly, holding the fire key auto-fires every 0.5s, still
+  capped at 5 in flight. AI unchanged (1 in flight + 1s cooldown). That hold-to-repeat
+  interval now comes from the equipped weapon (`Weapons.defs[...].autoFireInterval`)
+  rather than a `PLAYER_AUTO_FIRE_INTERVAL` constant in `src/main.js`.
 - **Session stats**: Win/Kill/Death tallies per tank slot (P1-3/AI1-3), in-session
   only (see GAME_SPEC.md section 9.1). HUD shows per-player icon+number only; Result
   screen and a new Mission Briefing "Session Stats" button (shown once stats exist,
@@ -49,15 +50,33 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stat type (green/red/white) — plus a Reset Stats button. Self-kills count as a
   death but not a kill.
 
+- **Power-ups** (`src/entities/weapon.js`, `crate.js`, `mine.js`, `laser.js`): crates
+  spawn every 3–7s on random empty cells (live cap rolled 1–4 per match); driving over
+  one swaps your weapon until its ammo runs out, then reverts to the base cannon. All
+  six weapons are in — Gatling, Shotgun, Homing Missile, Shield, Mine, Laser (see
+  GAME_SPEC.md section 4 for each one's numbers and its drawback). `Weapons.defs` in
+  `weapon.js` is the single tuning table; a weapon there can override the tank's
+  in-flight bullet cap, cooldown, and hold-to-repeat interval while it's equipped.
+  Every lethal thing in a match (bullets, mines, laser beams) books its kill through
+  one `destroyTank()` in `src/main.js`, so stats work the same regardless of cause.
+
 ## Planned next
 
 Nothing currently queued — see Known gaps below for candidates.
 
 ## Known gaps
 
-Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **power-ups** (#5),
-**pixel art pass** (#7), **audio pass** (#8) all remain.
+Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **pixel art pass** (#7),
+and **audio pass** (#8) remain. Power-ups (#5) are now built.
 
+- **Power-up sprites are placeholders.** Crates, mines, the shield bubble and the HUD
+  weapon icons all draw as plain rects/circles/color swatches. The real assets
+  (`weapon_crate`, `land_mine`, `shield_bubble`, `icon_*`) exist but are oversized raw
+  exports being resized on `feat/sprites` — swapping them in should only need
+  `Crate.draw`, `Mine.draw`, `Tank._drawShield` and `Hud`'s swatch.
+- **Easy AI doesn't seek crates.** It picks up whatever it drives over and fires it
+  through the normal path, but doesn't path toward crates or contest them — that's a
+  Medium/Hard trait per GAME_SPEC.md section 5 and isn't built.
 - **Medium/Hard AI don't exist** — shown but disabled ("Coming soon") in the UI.
   GAME_SPEC.md section 5 flags they need a *new* defining trait (predictive aiming,
   bank shots, faster paths), since "pathfinding when out of sight" no longer separates
