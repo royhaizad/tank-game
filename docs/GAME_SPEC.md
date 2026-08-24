@@ -112,9 +112,9 @@ for the next reaction tick.
 
 **Targeting (2-Team):** not built yet. When the 2-Team match logic lands
 (section 9.2), an AI must target living tanks on the *opposing* team only,
-and never pick a teammate as its nearest target. Whether a teammate's
-bullet can still destroy it (friendly fire) is an open decision — see
-section 9.2.
+and never pick a teammate as its nearest target. It is not protected from
+a teammate's bullet, though — friendly fire is ON in team mode (section
+9.2), so a stray bounce can still destroy a teammate.
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
@@ -359,14 +359,18 @@ both teams are destroyed in the same instant, it's a draw and neither team
 wins, matching FFA's simultaneous-kill rule. FFA's own win logic is
 untouched by this.
 
-**OPEN DECISION — friendly fire.** Whether a bullet can destroy a tank on
-the shooter's own team is not yet decided:
-- *ON* — identical to FFA: any bullet hurts any tank, teammates included.
-  Keeps the bounce mechanic dangerous in tight corridors.
-- *OFF* — bullets pass through teammates without damaging them.
-Self-kill via your own ricochet (section 3.2) stays intentional either way.
-This decision also drives AI targeting in team mode (section 5) and how a
-teammate kill is credited in the session stats (section 9.1).
+**Friendly fire: ON.** A bullet destroys whatever tank it touches, teammates
+included — exactly as in free-for-all, with no team-based exemption in the
+collision rule. Teams change who the AI *aims at* and how the match ends,
+not what a bullet does when it lands. The bounce mechanic stays equally
+dangerous for everyone in tight corridors, and self-kill via your own
+ricochet (section 3.2) remains intentional.
+
+- Killing a teammate credits the shooter a kill and the teammate a death,
+  same as any other kill (section 9.1) — there is no separate "own goal"
+  tally.
+- AI still never *targets* a teammate (section 5) — it just isn't protected
+  from a stray bounce.
 
 **Status.** The Briefing screen half is built: the Match Mode toggle,
 per-tank team assignment, the roster read-out, and the both-teams-occupied

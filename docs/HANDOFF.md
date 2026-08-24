@@ -70,19 +70,25 @@ Phase 2 was deliberately *not* started, to stay out of a concurrent
 3. **Result screen** — `drawResultScreen()` needs a team winner case ("Team A
    Wins!") alongside the current per-tank one; pick the banner background from
    the team color rather than winner.kind.
-4. **Session stats** — decide whether a team win credits every member's `wins`
-   or nothing (9.1 currently credits one label). Depends on the friendly-fire
-   answer for how teammate kills are credited.
+4. **Session stats** — teammate kills need no special case (friendly fire is
+   ON, so the shooter gets the kill and the teammate the death, like any other
+   kill). Still to settle: a team win should credit `wins` to every tank on the
+   winning team, including ones destroyed during the match — 9.1 currently
+   credits exactly one label, so that line needs updating when it's built.
 5. **AI targeting** — `EasyAI` must not pick a teammate as its nearest target
-   (GAME_SPEC.md section 5's 2-Team targeting note).
+   (GAME_SPEC.md section 5's 2-Team targeting note). Note this is targeting
+   only: with friendly fire ON, a teammate is still killable by a stray bounce,
+   so no change is needed in the bullet-collision loop.
 6. **On-map readability** — tanks currently only differ by their own color; a
    team match needs a visible team marker (outline/underline on the label) or
    the split is invisible during play.
 7. **Remove the temporary notice** on the Briefing screen (`_drawTeamSummary`
    in `src/ui/menu.js`) that says team mode still plays as free-for-all.
 
-**Blocked on a decision:** friendly fire ON vs OFF in team mode (GAME_SPEC.md
-9.2, "OPEN DECISION"). It gates items 4 and 5 and the bullet-collision loop.
+**Decided 2026-08-24:** friendly fire in team mode is **ON** — a bullet
+destroys any tank it touches, teammates included, exactly as in FFA
+(GAME_SPEC.md 9.2). So the bullet-collision loop in `updateMatch()` needs no
+team-awareness at all; teams only change AI targeting and how the match ends.
 
 ## Known gaps
 
