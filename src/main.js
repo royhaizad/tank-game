@@ -11,7 +11,17 @@ let screen = 'title';
 const config = {
   playerCount: 1,
   aiCount: 1,
-  aiDifficulties: ['easy', 'easy', 'easy'] // per AI slot; only the first aiCount are used
+  aiDifficulties: ['easy', 'easy', 'easy'], // per AI slot; only the first aiCount are used
+
+  // 2-Team mode, per GAME_SPEC.md section 9.2. FFA (teamMode false) is the
+  // default and is untouched by any of this. Assignments are keyed by slot
+  // label like `stats` is, so they survive changing the player/AI counts,
+  // toggling back to FFA and returning, and coming back from a match.
+  // Default split is every human on Team A vs every AI on Team B; any tank
+  // can be moved to either team by hand on the Briefing screen, and uneven
+  // teams are allowed.
+  teamMode: false,
+  teams: { P1: 'A', P2: 'A', P3: 'A', AI1: 'B', AI2: 'B', AI3: 'B' }
 };
 
 let winner = null; // { label, kind } of whoever's left standing, or null for a draw
@@ -239,9 +249,16 @@ function handleBriefingClick(clicked) {
   } else if (clicked.startsWith('rebind:')) {
     const [, playerIndex, action] = clicked.split(':');
     awaitingRebind = { playerIndex: Number(playerIndex), action };
+  } else if (clicked.startsWith('mode:')) {
+    config.teamMode = clicked.split(':')[1] === 'team';
+  } else if (clicked.startsWith('team:')) {
+    // `team:<slotLabel>:<A|B>` — assignments are kept for every slot, even
+    // ones the current counts don't use, so they come back if the count does.
+    const [, slotLabel, teamId] = clicked.split(':');
+    config.teams[slotLabel] = teamId;
   } else if (clicked === 'briefingBack') {
     screen = 'title';
-  } else if (clicked === 'battle' && config.playerCount + config.aiCount >= 2) {
+  } else if (clicked === 'battle' && Menu.canStartMatch(config)) {
     startMatch();
   } else if (clicked === 'viewStats') {
     awaitingRebind = null; // don't leave a hidden rebind capturing keys behind the modal

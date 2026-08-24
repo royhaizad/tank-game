@@ -16,6 +16,12 @@ class Menu {
   static STAT_COLORS = { wins: '#4caf50', kills: '#e74c3c', deaths: '#ffffff' };
   static SCORE_LABEL_COLOR = '#ffffff';
 
+  // 2-Team mode (GAME_SPEC.md section 9.2). A team is a mix of human and AI
+  // tanks, so a team's color is its own identity — not derived from
+  // PLAYER_COLORS/AI_COLORS, which stay per-tank.
+  static TEAM_IDS = ['A', 'B'];
+  static TEAM_COLORS = { A: '#2f8fbf', B: '#d07b2a' };
+
   constructor(canvas) {
     this.canvas = canvas;
     this.buttons = [];
@@ -59,6 +65,41 @@ class Menu {
     this._drawButton(ctx, playButton);
   }
 
+  // --- 2-Team helpers, per GAME_SPEC.md section 9.2 ---------------------
+  // `config.teams` maps slot label ('P1'..'P3', 'AI1'..'AI3') to 'A' or 'B'
+  // for all six possible slots; only the ones the current player/AI counts
+  // actually use count for anything. These live here rather than in
+  // main.js so the Briefing screen's disabled state and the Battle button's
+  // click handler can never disagree about what's startable.
+
+  static teamOf(config, label) {
+    return config.teams && config.teams[label] === 'B' ? 'B' : 'A';
+  }
+
+  // Every tank the current configuration will actually put on the field, in
+  // the same P1/P2/P3 then AI1/AI2/AI3 spawn order main.js uses.
+  static configuredSlots(config) {
+    const slots = [];
+    for (let i = 0; i < config.playerCount; i++) slots.push({ kind: 'player', index: i, label: `P${i + 1}` });
+    for (let i = 0; i < config.aiCount; i++) slots.push({ kind: 'ai', index: i, label: `AI${i + 1}` });
+    return slots;
+  }
+
+  static teamCounts(config) {
+    const counts = { A: 0, B: 0 };
+    Menu.configuredSlots(config).forEach((slot) => counts[Menu.teamOf(config, slot.label)]++);
+    return counts;
+  }
+
+  // FFA needs 2+ tanks; 2-Team additionally needs both teams occupied.
+  // Uneven teams (e.g. 1 vs 3) are fine on purpose.
+  static canStartMatch(config) {
+    if (config.playerCount + config.aiCount < 2) return false;
+    if (!config.teamMode) return true;
+    const counts = Menu.teamCounts(config);
+    return counts.A > 0 && counts.B > 0;
+  }
+
   // Mission Briefing screen, per GAME_SPEC.md section 6: pick player count
   // (1-3), AI count (0-3, only 0-selectable when players > 1), each AI's
   // difficulty (Medium/Hard disabled — not built yet), and each player's
@@ -68,6 +109,10 @@ class Menu {
   // only used here to decide whether the Session Stats button (top-right,
   // opens drawStatsModal) is worth showing; it's hidden until at least one
   // match has been tallied this session, per GAME_SPEC.md section 9.1.
+  // `config` also carries { teamMode, teams } — in 2-Team mode every
+  // configured tank's row grows a Team A/Team B picker and a roster
+  // read-out appears above the buttons (GAME_SPEC.md section 9.2). FFA is
+  // the default and looks exactly as it did before team mode existed.
   drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
     this.buttons = [];
@@ -78,6 +123,8 @@ class Menu {
     ctx.fillText('Mission Briefing', canvas.width / 2, 22);
     ctx.font = '11px sans-serif';
     ctx.fillText('Configure your forces before battle', canvas.width / 2, 38);
+
+    this._drawModeToggle(ctx, config);
 
     this._drawCountSelector(
       ctx,
@@ -92,14 +139,19 @@ class Menu {
       n === 0 ? config.playerCount < 2 : false
     );
 
+    const teamMode = !!config.teamMode;
     for (let i = 0; i < config.playerCount; i++) {
-      this._drawPlayerBriefingRow(ctx, i, 95 + i * 85, awaitingRebind);
+      const teamId = teamMode ? Menu.teamOf(config, `P${i + 1}`) : null;
+      this._drawPlayerBriefingRow(ctx, i, 95 + i * 85, awaitingRebind, teamId);
     }
     for (let i = 0; i < config.aiCount; i++) {
-      this._drawAiBriefingRow(ctx, i, 95 + i * 85, config.aiDifficulties[i]);
+      const teamId = teamMode ? Menu.teamOf(config, `AI${i + 1}`) : null;
+      this._drawAiBriefingRow(ctx, i, 95 + i * 85, config.aiDifficulties[i], teamId);
     }
 
-    const canBattle = config.playerCount + config.aiCount >= 2;
+    if (teamMode) this._drawTeamSummary(ctx, canvas, config);
+
+    const canBattle = Menu.canStartMatch(config);
     const backButton = { id: 'briefingBack', x: 200, y: 440, w: 90, h: 34, label: '← Back' };
     const battleButton = {
       id: 'battle',
@@ -149,7 +201,10 @@ class Menu {
     });
   }
 
-  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind) {
+  // `teamId` is 'A'/'B' in 2-Team mode, or null/undefined to leave the row
+  // exactly as it was pre-team-mode — which is what FFA and the pause
+  // menu's Change Controls screen both pass.
+  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind, teamId) {
     const colors = Menu.PLAYER_COLORS;
     const bindings = Input.playerBindings[playerIndex];
 
@@ -180,9 +235,11 @@ class Menu {
       this._drawKeyBox(ctx, btn);
       x += boxW + gap;
     });
+
+    if (teamId) this._drawTeamChips(ctx, 20, y + 42, `P${playerIndex + 1}`, teamId);
   }
 
-  _drawAiBriefingRow(ctx, aiIndex, y, difficulty) {
+  _drawAiBriefingRow(ctx, aiIndex, y, difficulty, teamId) {
     const colors = Menu.AI_COLORS;
 
     ctx.fillStyle = colors[aiIndex];
@@ -214,10 +271,93 @@ class Menu {
       this._drawToggleButton(ctx, btn);
       x += boxW + gap;
     });
+
+    if (teamId) this._drawTeamChips(ctx, 340, y + 42, `AI${aiIndex + 1}`, teamId);
+  }
+
+  // Match-mode picker, top-left — mirroring the Session Stats button's
+  // corner placement so the crowded middle of the screen stays as-is.
+  // Free-for-all is the default and behaves exactly as it always has;
+  // 2-Team turns on the per-tank pickers (GAME_SPEC.md section 9.2).
+  _drawModeToggle(ctx, config) {
+    const modes = [
+      { id: 'mode:ffa', label: 'FFA', selected: !config.teamMode },
+      { id: 'mode:team', label: '2-Team', selected: !!config.teamMode }
+    ];
+
+    let x = 8;
+    modes.forEach((mode) => {
+      const btn = { id: mode.id, x, y: 8, w: 62, h: 22, label: mode.label, selected: mode.selected };
+      this.buttons.push(btn);
+      this._drawToggleButton(ctx, btn);
+      x += 66;
+    });
+  }
+
+  // Per-tank Team A / Team B picker, tucked into the empty band below a
+  // briefing row's key boxes (players) or difficulty tiers (AI), so team
+  // mode doesn't reflow the rows themselves. Button id is
+  // `team:<slotLabel>:<A|B>`, handled by main.js's handleBriefingClick.
+  _drawTeamChips(ctx, x, y, slotLabel, currentTeam) {
+    ctx.fillStyle = '#cfcfcf';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Team', x, y + 14);
+
+    const chipW = 34;
+    const gap = 4;
+    let chipX = x + 32;
+
+    Menu.TEAM_IDS.forEach((teamId) => {
+      const btn = {
+        id: `team:${slotLabel}:${teamId}`,
+        x: chipX,
+        y,
+        w: chipW,
+        h: 20,
+        label: teamId,
+        selected: currentTeam === teamId,
+        selectedColor: Menu.TEAM_COLORS[teamId]
+      };
+      this.buttons.push(btn);
+      this._drawToggleButton(ctx, btn);
+      chipX += chipW + gap;
+    });
+  }
+
+  // Roster read-out above the Back/Battle buttons, so the split is readable
+  // at a glance without tracing every row's chips. Also carries team mode's
+  // two standing notices: an empty team (which blocks Battle) and the
+  // reminder that the match itself still runs free-for-all until the
+  // team win condition is wired up.
+  _drawTeamSummary(ctx, canvas, config) {
+    const centerX = canvas.width / 2;
+    const slots = Menu.configuredSlots(config);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 12px sans-serif';
+
+    const rosters = Menu.TEAM_IDS.map((teamId) =>
+      slots.filter((slot) => Menu.teamOf(config, slot.label) === teamId).map((slot) => slot.label)
+    );
+
+    rosters.forEach((members, i) => {
+      ctx.fillStyle = Menu.TEAM_COLORS[Menu.TEAM_IDS[i]];
+      ctx.fillText(`TEAM ${Menu.TEAM_IDS[i]} — ${members.length ? members.join(', ') : 'empty'}`, centerX, 390 + i * 18);
+    });
+
+    ctx.font = '10px sans-serif';
+    if (rosters.some((members) => members.length === 0)) {
+      ctx.fillStyle = '#c9903b';
+      ctx.fillText('Both teams need at least one tank before you can start.', centerX, 428);
+    } else {
+      ctx.fillStyle = '#9db08f';
+      ctx.fillText('Note: the team win condition is not wired up yet — this still plays as free-for-all.', centerX, 428);
+    }
   }
 
   _drawToggleButton(ctx, btn) {
-    ctx.fillStyle = btn.disabled ? '#3a3a3a' : btn.selected ? '#3b6ea5' : '#4a4a4a';
+    ctx.fillStyle = btn.disabled ? '#3a3a3a' : btn.selected ? btn.selectedColor || '#3b6ea5' : '#4a4a4a';
     ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
     ctx.strokeStyle = btn.selected ? '#fff' : '#000';
     ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);

@@ -8,13 +8,15 @@ file before implementing any feature, rather than being re-told the rules.
 ## 1. Overview
 
 **Genre:** Top-down 2D maze tank combat. 1–3 local players and/or 0–3 AI
-opponents, free-for-all, in the same maze at once (see section 5).
+opponents (up to 6 tanks) in the same maze at once (see section 5), fighting
+either free-for-all (the default) or split into two teams (see section 9.2).
 **Inspiration:** Tank Trouble (bouncing-bullet mechanic).
 **Platform:** Browser, HTML5, fully client-side, no backend.
 **Session length:** 1–5 minutes per match.
-**Core loop:** Configure forces (how many players, how many AI, each AI's
-difficulty) on the Mission Briefing screen → free-for-all in a random maze
-→ last tank standing wins → rematch or reconfigure.
+**Core loop:** Configure forces (match mode, how many players, how many AI,
+each AI's difficulty, and — in 2-Team mode — each tank's team) on the
+Mission Briefing screen → fight in a random maze → last tank (FFA) or last
+team (2-Team) standing wins → rematch or reconfigure.
 
 ---
 
@@ -99,14 +101,20 @@ implemented — Medium and Hard are selectable in the UI but disabled
 ("Coming soon") until built, same treatment as any other not-yet-built
 feature in this doc.
 
-**Targeting (FFA):** every match is free-for-all (see section 1 and
-section 9) — there is no player-team/AI-team distinction, and a bullet
-hurts whatever tank it touches regardless of who fired it or who's
+**Targeting (FFA):** in a free-for-all match (see section 1 and section 9)
+there is no player-team/AI-team distinction, and a bullet hurts whatever
+tank it touches regardless of who fired it or who's
 driving the tank it hits. Each AI tank targets whichever other living tank
 (player-controlled or AI-controlled) is nearest by walkable path distance,
 re-evaluated every reaction tick alongside its normal re-pathing. If its
 current target is destroyed, it re-targets immediately rather than waiting
 for the next reaction tick.
+
+**Targeting (2-Team):** not built yet. When the 2-Team match logic lands
+(section 9.2), an AI must target living tanks on the *opposing* team only,
+and never pick a teammate as its nearest target. Whether a teammate's
+bullet can still destroy it (friendly fire) is an open decision — see
+section 9.2.
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
@@ -180,6 +188,11 @@ bullets at close range.
 
 1. **Title Screen** — logo, Play button, idle background animation.
 2. **Mission Briefing** — configure forces before battle:
+   - Match Mode: FFA / 2-Team toggle in the top-left corner (mirroring the
+     Session Stats button's corner placement). FFA is the default and the
+     screen looks and behaves exactly as it did before team mode existed.
+     Picking 2-Team adds a Team A / Team B picker to every configured
+     tank's row and a roster read-out above the buttons — see section 9.2.
    - Allied Forces: 1P / 2P / 3P toggle picks how many local human players.
      Each active player slot shows its control scheme (Move Forward/Back,
      Turn Left/Right, Fire), rebindable directly from this screen (click a
@@ -191,7 +204,9 @@ bullets at close range.
      disabled — "Coming soon," same as everywhere else in this doc).
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
-   - "Battle!" button starts the match with the configured forces.
+   - "Battle!" button starts the match with the configured forces. Needs
+     2+ tanks total; in 2-Team mode it also needs both teams occupied
+     (disabled, with an inline reason, until they are).
    - Session Stats button (top-right corner) — only shown once at least one
      match has been tallied this session (see section 9.1); opens a modal
      overlay with the same scoreboard and Reset Stats button as the Result
@@ -268,7 +283,10 @@ Mute toggle in pause menu.
 
 ## 9. Win/Lose Condition
 
-Free-for-all, always — there is no team distinction between players and AI
+Free-for-all is the default and is described here; 2-Team is an opt-in
+alternative picked on the Mission Briefing screen (section 9.2).
+
+In a free-for-all there is no team distinction between players and AI
 (see section 5's Targeting note); a bullet destroys whatever tank it
 touches regardless of who fired it. A destroyed tank is removed from play
 but the match continues; it ends when exactly one tank remains, and that
@@ -309,6 +327,52 @@ words, to fit the space).
   only) and as a full scoreboard on the Result Screen and the Briefing
   stats modal (`src/ui/menu.js`, all tanks used this session, both with
   the Reset Stats button).
+
+### 9.2 Team Mode (2-Team)
+
+An opt-in alternative to free-for-all, chosen with the Match Mode toggle on
+the Mission Briefing screen (section 6). FFA remains the default and is
+completely unaffected by everything in this section.
+
+**Assignment.** Every configured tank — human or AI, any mix, up to 6 total
+— is assigned to Team A or Team B by hand on the Briefing screen, via a
+Team A/B picker on that tank's own row. There is no auto-balance. Uneven
+teams are allowed and supported on purpose (e.g. 1 human vs 3 AI). The
+default split is every human on Team A vs every AI on Team B; any tank can
+be moved to either team.
+
+- Assignments are stored per slot label (P1–P3, AI1–AI3), like the session
+  stats in 9.1, so they survive changing the player/AI counts, toggling
+  back to FFA and returning, and coming back from a match. They are *not*
+  auto-corrected when the counts change — if the current counts leave one
+  team empty, Battle is disabled with an inline reason until the player
+  fixes the split themselves.
+- Both teams must have at least one tank for a match to start.
+- Team colors (Team A blue, Team B orange) are a team identity of their
+  own, distinct from each tank's individual color, since a team is a mix
+  of human and AI tanks.
+
+**Win condition.** *Not built yet.* The match ends when every tank on one
+team is destroyed, and the surviving team wins (last team standing) — the
+team-level equivalent of FFA's last-tank-standing. If the last tanks on
+both teams are destroyed in the same instant, it's a draw and neither team
+wins, matching FFA's simultaneous-kill rule. FFA's own win logic is
+untouched by this.
+
+**OPEN DECISION — friendly fire.** Whether a bullet can destroy a tank on
+the shooter's own team is not yet decided:
+- *ON* — identical to FFA: any bullet hurts any tank, teammates included.
+  Keeps the bounce mechanic dangerous in tight corridors.
+- *OFF* — bullets pass through teammates without damaging them.
+Self-kill via your own ricochet (section 3.2) stays intentional either way.
+This decision also drives AI targeting in team mode (section 5) and how a
+teammate kill is credited in the session stats (section 9.1).
+
+**Status.** The Briefing screen half is built: the Match Mode toggle,
+per-tank team assignment, the roster read-out, and the both-teams-occupied
+Battle gate. The match itself still runs free-for-all until the win
+condition above is implemented — the Briefing screen says so in-line while
+that's true.
 
 ---
 

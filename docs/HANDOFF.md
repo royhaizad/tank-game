@@ -51,7 +51,38 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
 
 ## Planned next
 
-Nothing currently queued — see Known gaps below for candidates.
+**`feat/team-assign` — 2-Team mode, phase 2 (match logic).** Phase 1 (the
+Mission Briefing UI) is done on this branch: `config.teamMode` + `config.teams`
+(slot label -> 'A'/'B') in `src/main.js`, the Match Mode toggle / per-row team
+pickers / roster read-out in `src/ui/menu.js`, and `Menu.canStartMatch()` as the
+single source of truth for whether Battle is allowed. See GAME_SPEC.md 9.2.
+
+Phase 2 was deliberately *not* started, to stay out of a concurrent
+`feat/session-stats` session's way in `updateMatch()`. Once that has merged:
+
+1. **Carry the team onto the field** — `startMatch()` puts `team: 'A'|'B'` on
+   each `matchTanks` entry when `config.teamMode` (read from `config.teams` by
+   slot label, which is already what the labels are keyed by).
+2. **Win condition** — the `survivors.length <= 1` check in `updateMatch()`
+   grows a team branch: group survivors by team, end when one team has zero
+   left, credit the win, draw if both empty in the same frame. FFA's branch
+   stays exactly as it is.
+3. **Result screen** — `drawResultScreen()` needs a team winner case ("Team A
+   Wins!") alongside the current per-tank one; pick the banner background from
+   the team color rather than winner.kind.
+4. **Session stats** — decide whether a team win credits every member's `wins`
+   or nothing (9.1 currently credits one label). Depends on the friendly-fire
+   answer for how teammate kills are credited.
+5. **AI targeting** — `EasyAI` must not pick a teammate as its nearest target
+   (GAME_SPEC.md section 5's 2-Team targeting note).
+6. **On-map readability** — tanks currently only differ by their own color; a
+   team match needs a visible team marker (outline/underline on the label) or
+   the split is invisible during play.
+7. **Remove the temporary notice** on the Briefing screen (`_drawTeamSummary`
+   in `src/ui/menu.js`) that says team mode still plays as free-for-all.
+
+**Blocked on a decision:** friendly fire ON vs OFF in team mode (GAME_SPEC.md
+9.2, "OPEN DECISION"). It gates items 4 and 5 and the bullet-collision loop.
 
 ## Known gaps
 
