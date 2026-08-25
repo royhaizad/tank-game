@@ -32,6 +32,18 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stops being reachable along the path it was planned from (e.g. shoved off-course by
   reversing) — the earlier root cause of it looking permanently stuck against a wall.
   Fires instantly (0s delay) on aim+line-of-sight; limited to 1 bullet + 1s cooldown.
+- **Medium AI** (`src/ai/medium.js`): `class MediumAI extends EasyAI` — inherits all of
+  the above navigation untouched (so Easy nav fixes are Medium nav fixes) and turns up
+  four dials: ~9° fire window instead of ~15° (only takes clean shots), 2 bullets + 0.6s
+  cooldown, 0.4s re-target cadence, and a dodge that sidesteps bullets on a collision
+  course within 180px. Wins ~60% vs Easy over 500 headless matches (even = 50%).
+  **Predictive/leading aim was built, measured, and cut** — with no turret the shot
+  always leaves along the driving heading, so leading only shifts *when* it fires. See
+  GAME_SPEC.md section 5.1; it belongs in Hard, together with aim-turning.
+- **AI tier wiring**: `AI_TIERS` in `src/main.js` maps a tier name to its brain class
+  and ammo limits. Adding Hard = one row there, one row in the GAME_SPEC 5.1 ladder,
+  and dropping `disabled` from the Hard toggle in `src/ui/menu.js`. Tiers missing from
+  `AI_TIERS` are greyed out on Mission Briefing and refuse selection.
 - **Multiplayer**: Mission Briefing screen (1-3 players, 0-3 AI, per-AI difficulty,
   inline per-player key rebinding); free-for-all (any bullet hurts any tank);
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
@@ -129,8 +141,9 @@ Nothing currently queued — see Known gaps below for candidates.
 
 ## Known gaps
 
-Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **pixel art pass** (#7),
-and **audio pass** (#8) remain. Power-ups (#5) are now built.
+Per `GAME_SPEC.md` section 12: **pixel art pass** (#7) and **audio pass** (#8) are all
+that remain — movement/bullets/maze (#1-3), all three AI tiers (#4), power-ups (#5),
+and menus (#6) are done.
 
 - **Power-up sprites are placeholders.** The crate box, mine body, and shield bubble
   are still plain rects/circles. The weapon icon itself is a step up from a flat
@@ -142,21 +155,19 @@ and **audio pass** (#8) remain. Power-ups (#5) are now built.
   exist but are oversized raw exports being resized on `feat/sprites` — swapping them
   in should only need `Crate.draw`, `Mine.draw`, `Tank._drawShield`, and replacing
   `Weapons.drawIcon`'s canvas-drawn shapes with `drawImage` calls.
-- **Power-up SFX are synthesized, no audio files.** Three events per weapon lifecycle
+- **Power-up SFX are synthesized, no audio files.** Events per weapon lifecycle
   (`AudioEngine` in `engine/audio.js`): `playPowerupSpawn` (crate appears),
-  `playPowerupEquip` (renamed from `playPickupChime` — a tank drives over one), and a
+  `playPowerupEquip` (renamed from `playPickupChime` — a tank drives over one), a
   weapon-specific "use" sound dispatched from `WeaponFire._playFireSound` in
   `weapon.js` (`playGatlingShot`/`playShotgunBlast`/`playMissileLaunch`/
-  `playMineDrop`/`playLaserFire`) the instant that weapon actually fires. Cannon and
-  shield have no "use" sound by design — cannon isn't a power-up, and equipping the
-  shield is its only action.
+  `playMineDrop`/`playLaserFire`) the instant that weapon actually fires, and
+  `playShieldActivate` when a held shield charge pops (see `tryFire` in `main.js`).
+  Cannon has no "use" sound by design — it isn't a power-up.
 - **Easy AI doesn't seek crates.** It picks up whatever it drives over and fires it
   through the normal path, but doesn't path toward crates or contest them — that's a
-  Medium/Hard trait per GAME_SPEC.md section 5 and isn't built.
-- **Medium/Hard AI don't exist** — shown but disabled ("Coming soon") in the UI.
-  GAME_SPEC.md section 5 flags they need a *new* defining trait (predictive aiming,
-  bank shots, faster paths), since "pathfinding when out of sight" no longer separates
-  them from Easy.
+  Medium/Hard trait per GAME_SPEC.md section 5 and isn't built for power-up pickups
+  specifically (Medium/Hard's *combat* behavior against each other is built — see the
+  section 5.1 ladder above).
 - `assets/sprites/` (22 files) is untracked on purpose — no code references sprites yet.
 - Only synthesized audio exists (`src/engine/audio.js`, empty-fire click via Web Audio).
 
