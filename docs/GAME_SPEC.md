@@ -196,6 +196,8 @@ bullets at close range.
      key box, press the new key — same swap-conflict rule as the pause
      menu's Change Controls, extended across every player's bindings so no
      two players can ever share a key).
+   - Every active tank slot, player or AI, also shows an editable name field
+     (see section 9.4) — click it and type to rename that tank.
    - Enemy Forces: 0P / 1 / 2 / 3 toggle picks how many AI tanks. Each
      active AI slot independently picks Easy/Medium/Hard (Medium/Hard
      disabled — "Coming soon," same as everywhere else in this doc).
@@ -207,10 +209,9 @@ bullets at close range.
      - **Teams Battle** — goes to the Team Setup screen (below). It does
        *not* check the team split, since Team Setup is where a bad split
        gets fixed; gating entry would be a dead end.
-   - Session Stats button (top-right corner) — only shown once at least one
-     match has been tallied this session (see section 9.1); opens a modal
-     overlay with the same scoreboard and Reset Stats button as the Result
-     Screen, plus a Close button to return to Briefing.
+   - Scoreboard button (top-right corner) — only shown once at least one
+     match has been tallied this session; opens the Scoreboard modal
+     (section 9.1).
 3. **Team Setup** — reached from Mission Briefing's "Teams Battle" button;
    see section 9.2 for the rules it enforces. Contains:
    - A "← Back" button (top-left) returning to Mission Briefing with the
@@ -219,6 +220,8 @@ bullets at close range.
      can still be changed from here without navigating back. Arriving via
      "Teams Battle" selects Play Teams. Selecting Play All vs All dims the
      team boxes and makes the whole assignment area inert.
+   - Each team's heading is an editable name field — click it and type to
+     rename that team (section 9.4). Only editable in Play Teams.
    - Two boxes, **Team 1** and **Team 2**, holding a labeled tank token
      (P1/P2/P3/AI1/AI2/AI3, in that tank's own color) for every configured
      tank. Drag a token into the other box to reassign it; clicking a token
@@ -238,7 +241,11 @@ bullets at close range.
    Rematch (new random maze, same configuration), Change Difficulty (back
    to Mission Briefing — the button keeps its original name from the
    single-AI era even though it now reconfigures the whole match, not just
-   difficulty), Back to Title.
+   difficulty), Back to Title, and Scoreboard (opens the modal in 9.1).
+   Below the buttons it shows the top two or three session awards (section
+   9.3) rather than the full tally table — the numbers are one click away
+   in the Scoreboard, and the awards are what's worth reading the moment a
+   match ends.
 
 ---
 
@@ -337,15 +344,30 @@ words, to fit the space).
   modal — see section 6) clears them. A page refresh also clears them,
   since nothing is persisted — no localStorage, per the no-backend/no-saves
   rule (section 10).
-- Scoreboard tables (Result Screen and the Briefing stats modal) color
-  each stat by type rather than by tank: Win green, Kill red, Death white
-  (white for contrast against this game's uniformly dark backgrounds — not
-  computed dynamically, since nothing here uses a light background). The
-  tank name itself is plain white, not the tank's usual color.
+- Scoreboard tables color each stat by type rather than by tank: Win
+  green, Kill red, Death white (white for contrast against this game's
+  uniformly dark backgrounds — not computed dynamically, since nothing
+  here uses a light background). A tank's name is plain white, not the
+  tank's usual color; a team's name uses its team color.
 - Shown in the in-match HUD (`src/ui/hud.js`, per-player, icon + number
-  only) and as a full scoreboard on the Result Screen and the Briefing
-  stats modal (`src/ui/menu.js`, all tanks used this session, both with
-  the Reset Stats button).
+  only) and in the **Scoreboard** modal (`src/ui/menu.js`).
+
+**The Scoreboard modal** (renamed from "Session Stats"), opened from the
+Mission Briefing button or the Result Screen, holds:
+
+- **Tanks** — one row per slot used this session, **ranked by Wins**, with
+  Kills breaking a tie, then fewest Deaths, then slot order, so two tanks
+  with identical records never reshuffle arbitrarily between views.
+- **Teams** — a separate table of the team tallies (section 9.2), shown
+  only once a team match has been played.
+- **Awards** — a button opening the awards modal (section 9.3).
+- **Reset Stats** — asks for a Yes/No confirmation before wiping anything,
+  since it can't be undone. It clears every tank and team tally; custom
+  names are configuration, not stats, and are deliberately kept (9.4).
+
+Two further counters are tracked per tank purely to feed the awards, and
+are not shown as scoreboard columns: **self-kills** (destroyed by your own
+ricochet) and **team-kills** (destroyed a teammate).
 
 ### 9.2 Team Mode (Team 1 vs Team 2)
 
@@ -400,6 +422,72 @@ ricochet (section 3.2) remains intentional.
 team, including ones destroyed earlier in the match — the win belongs to the
 team, not to whoever happened to survive it (see section 9.1). A draw
 credits no one, as in all-vs-all.
+
+**Team tallies.** Team 1 and Team 2 each keep their own Win/Kill/Death
+totals, shown as a separate table in the Scoreboard (section 9.1) rather
+than mixed into the per-tank rows. Each event is credited to whichever team
+that tank was on *at the time*, not to whoever is on the team now — teams
+get reshuffled between matches, so summing the current roster's stats on
+demand would credit a team with kills scored while that tank was on the
+other side. A team win counts once for the team, not once per member.
+
+### 9.3 Session Awards ("fun facts")
+
+Light-hearted titles handed out from the session tallies — bragging rights
+and material for taking the mickey out of whoever is having a bad night.
+Computed in `src/ui/awards.js`, which is pure calculation and does no
+drawing.
+
+- Judged across the **whole session**, not a single match, so the titles
+  accumulate meaning as the night goes on.
+- Every award **explains itself on hover** — a tooltip describing what it
+  actually measures, since half the titles are jokes rather than
+  self-evident labels.
+- **Ties are shared, not broken** — two tanks on equal kills both hold
+  "Most Deadly".
+- An award only appears when it says something. Awards that every tank
+  would qualify for (everyone on zero kills at session start) are
+  suppressed, and nothing at all is shown until a match has produced some
+  kills, deaths, or wins.
+
+| Award | Held by |
+|---|---|
+| **Team Killer** | Destroyed the most teammates |
+| **Own Goal Enthusiast** | Destroyed by their own ricochet most often |
+| **Untouchable** | Never destroyed at all, having scored or won |
+| **Champion** | Most wins |
+| **Most Deadly** | Most kills |
+| **Sharpshooter** | Best kill/death ratio |
+| **Victim of the Situation** | Most deaths |
+| **Cannon Fodder** | Worst kill/death ratio |
+| **Glass Cannon** | Above-average kills *and* above-average deaths |
+| **Pacifist** | No kills at all |
+| **Participation Trophy** | Played, never won |
+| **Wallflower** | Below-average kills *and* below-average deaths |
+
+That order is also the **priority order**: the Result Screen shows only the
+first two or three that currently apply, so the rare and funny ones outrank
+the routine ones. The full list lives in the awards modal, opened from the
+Scoreboard (section 9.1).
+
+### 9.4 Custom Names
+
+Every tank slot (P1–P3, AI1–AI3) and both teams can be renamed.
+
+- **Tanks** are renamed on the Mission Briefing screen, on that tank's own
+  row; **teams** on the Team Setup screen, by clicking the team's heading.
+- Names are capped at **8 characters** — enough for a first name, short
+  enough that labels above two nearby tanks don't collide on the maze.
+- Text entry is drawn on the canvas, using the same "click it, then press
+  keys" idiom as key rebinding, because this game has no DOM UI. Typing and
+  Backspace only: **Enter** commits, **Escape** cancels, and clearing the
+  field restores the default name.
+- A custom name is **display only**. Stats stay keyed by slot label
+  internally, so renaming P1 to "Izzad" keeps that slot's existing history
+  rather than starting a new row, and Reset Stats never clears a name.
+- The name replaces the label everywhere it appears: above the tank on the
+  maze, in the HUD, on the Team Setup tokens, in the Scoreboard, in the
+  awards, and in the Result Screen's "`<name>` Wins!" banner.
 
 ---
 

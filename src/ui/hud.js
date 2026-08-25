@@ -7,7 +7,9 @@
 class Hud {
   // playerEntries: match entries with kind === 'player', in player order.
   // stats: label -> { kills, deaths, wins } session tallies (src/main.js).
-  draw(ctx, canvas, playerEntries, activeBulletCount, stats) {
+  // config: carries the custom names (GAME_SPEC.md 9.4) — stats stay keyed
+  // by slot label, so only the displayed text changes when a tank renames.
+  draw(ctx, canvas, playerEntries, activeBulletCount, stats, config) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
     ctx.fillRect(0, 0, canvas.width, 24);
 
@@ -20,7 +22,7 @@ class Hud {
     playerEntries.forEach((entry) => {
       const status = entry.tank.destroyed ? 'OUT' : `${activeBulletCount(entry.tank)}/${entry.tank.maxActiveBullets}`;
       const s = stats[entry.label] || { wins: 0, kills: 0, deaths: 0 };
-      const text = `${entry.label}: ${status}  🏆${s.wins} 🔫${s.kills} 💀${s.deaths}`;
+      const text = `${Menu.displayName(config, entry.label)}: ${status}  🏆${s.wins} 🔫${s.kills} 💀${s.deaths}`;
       ctx.fillStyle = entry.tank.color;
       ctx.fillText(text, x, midY);
       x += ctx.measureText(text).width + 18;

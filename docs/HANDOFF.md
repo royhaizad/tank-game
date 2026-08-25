@@ -32,6 +32,10 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stops being reachable along the path it was planned from (e.g. shoved off-course by
   reversing) — the earlier root cause of it looking permanently stuck against a wall.
   Fires instantly (0s delay) on aim+line-of-sight; limited to 1 bullet + 1s cooldown.
+- **Scoreboard, awards and names**: the Scoreboard modal (win-ranked tank table
+  + team table + confirmed Reset), 12 session awards with hover tooltips in
+  `src/ui/awards.js`, and 8-character custom names for every tank and both
+  teams, typed directly on the canvas. See GAME_SPEC.md 9.1, 9.3 and 9.4.
 - **Team mode**: Mission Briefing's two battle buttons (All vs All / Teams), the
   Team Setup screen with drag-and-drop assignment into Team 1 / Team 2, on-map
   team flags, last-team-standing win with draw handling, AI targeting enemies
@@ -81,6 +85,21 @@ together, so the next session doesn't have to re-derive it:
 - The team flag is its own draw pass in `drawTeamFlag()` (`src/main.js`), not
   part of `Tank.draw()` — the tank knows nothing about teams and the flag has
   to stay upright while the tank rotates.
+- **Names live in `config`** (`tankNames`, `teamNames`), not next to `stats` —
+  that's what makes Reset Stats leave them alone for free. Everything displays
+  through `Menu.displayName()` / `Menu.teamName()`, and stats stay keyed by
+  slot label, so a rename never orphans a tank's history.
+- **Text entry** is a `keydown` listener in `src/main.js` guarded on
+  `editingName`; `Menu._drawNameField()` renders the live buffer and caret.
+  Starting a name edit clears `awaitingRebind` and vice versa, or the two
+  would fight over the same keystrokes.
+- **Modals are overlays, not screens.** `handleOverlayClick()` gets first
+  refusal on every click so buttons behind a modal can't fire through it; the
+  draw order in the loop matches the order it consumes them.
+- `src/ui/awards.js` is pure computation — it takes `stats` and returns award
+  objects with slot labels, and never draws or resolves display names. Adding
+  an award is one entry in `Awards.DEFINITIONS`, ordered by priority since the
+  Result screen slices the top few off the front.
 
 ## Known gaps
 

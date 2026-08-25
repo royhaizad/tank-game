@@ -25,6 +25,24 @@ class Menu {
   // full-strength colors are far too bright behind 30px text.
   static TEAM_BG_COLORS = { 1: '#1b3a4a', 2: '#4a3117' };
 
+  // Custom names, per GAME_SPEC.md section 9.4. 8 characters is what keeps
+  // a name legible above a tank without colliding with its neighbours on a
+  // 640x480 maze holding up to six of them.
+  static MAX_NAME_LENGTH = 8;
+  static AWARD_TITLE_COLOR = '#f0c860';
+
+  // Both resolve to the default when no custom name is set, so callers can
+  // use them everywhere a label is displayed without checking first.
+  static displayName(config, label) {
+    const custom = config && config.tankNames && config.tankNames[label];
+    return custom || label;
+  }
+
+  static teamName(config, teamId) {
+    const custom = config && config.teamNames && config.teamNames[teamId];
+    return custom || `Team ${teamId}`;
+  }
+
   constructor(canvas) {
     this.canvas = canvas;
     this.buttons = [];
@@ -40,6 +58,12 @@ class Menu {
     this.drag = null;
     this.suppressClick = false;
 
+    // Hover tooltips (award descriptions, per GAME_SPEC.md section 9.3).
+    // Targets are rebuilt every frame by whichever screen draws them, and
+    // drawTooltip() renders whichever one the pointer is currently over.
+    this.pointer = { x: -1, y: -1 };
+    this.hoverTargets = [];
+
     canvas.addEventListener('click', (e) => this._onClick(e));
     canvas.addEventListener('mousedown', (e) => this._onPointerDown(e));
     // move/up on window, not canvas, so a drag that wanders off the canvas
@@ -50,6 +74,9 @@ class Menu {
 
   setScreen(screen) {
     this.screen = screen;
+    // Cleared once per frame before anything draws, so a target can never
+    // outlive the screen that registered it.
+    this.hoverTargets = [];
   }
 
   consumeClick() {
@@ -98,6 +125,7 @@ class Menu {
 
     this.drag = {
       slotLabel: token.slotLabel,
+      name: token.name,
       teamId: token.teamId,
       color: token.color,
       w: token.w,
@@ -113,9 +141,11 @@ class Menu {
   }
 
   _onPointerMove(e) {
+    const { x, y } = this._eventPos(e);
+    this.pointer = { x, y }; // tracked always — hover tooltips need it, not just drags
+
     if (!this.drag) return;
 
-    const { x, y } = this._eventPos(e);
     this.drag.x = x;
     this.drag.y = y;
     // Compared against where the press started, not the last frame, so a
@@ -204,14 +234,14 @@ class Menu {
   // control scheme (rebindable inline, same as the pause menu's Change
   // Controls). `config` is { playerCount, aiCount, aiDifficulties[3] }.
   // stats: label -> { kills, deaths, wins } session tallies (src/main.js) —
-  // only used here to decide whether the Session Stats button (top-right,
-  // opens drawStatsModal) is worth showing; it's hidden until at least one
+  // only used here to decide whether the Scoreboard button (top-right,
+  // opens drawScoreboardModal) is worth showing; it's hidden until at least one
   // match has been tallied this session, per GAME_SPEC.md section 9.1.
   // Team assignment deliberately does NOT live here — this screen picks the
   // forces, and the two battle buttons at the bottom pick the match type:
   // "All vs All Battle" starts immediately, "Teams Battle" hands off to the
   // Team Setup screen (drawTeamAssignScreen), per GAME_SPEC.md section 9.2.
-  drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats) {
+  drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats, editingName) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
     this.buttons = [];
 
@@ -220,7 +250,7 @@ class Menu {
     ctx.textAlign = 'center';
     ctx.fillText('Mission Briefing', canvas.width / 2, 22);
     ctx.font = '11px sans-serif';
-    ctx.fillText('Configure your forces before battle', canvas.width / 2, 38);
+    ctx.fillText('Click a name or a key to change it', canvas.width / 2, 38);
 
     this._drawCountSelector(
       ctx,
@@ -235,11 +265,13 @@ class Menu {
       n === 0 ? config.playerCount < 2 : false
     );
 
+    // Rows start at 106 rather than 95 to clear the count selectors above —
+    // each row now carries a name box sitting 16px above its own baseline.
     for (let i = 0; i < config.playerCount; i++) {
-      this._drawPlayerBriefingRow(ctx, i, 95 + i * 85, awaitingRebind);
+      this._drawPlayerBriefingRow(ctx, i, 106 + i * 85, awaitingRebind, config, editingName);
     }
     for (let i = 0; i < config.aiCount; i++) {
-      this._drawAiBriefingRow(ctx, i, 95 + i * 85, config.aiDifficulties[i]);
+      this._drawAiBriefingRow(ctx, i, 106 + i * 85, config.aiDifficulties[i], config, editingName);
     }
 
     // Both battle buttons need 2+ tanks; "Teams Battle" doesn't check the
@@ -271,7 +303,7 @@ class Menu {
     this._drawButton(ctx, teamsButton);
 
     if (stats && Object.keys(stats).length > 0) {
-      const statsButton = { id: 'viewStats', x: canvas.width - 132, y: 8, w: 124, h: 22, label: 'Session Stats' };
+      const statsButton = { id: 'viewStats', x: canvas.width - 112, y: 8, w: 104, h: 22, label: 'Scoreboard' };
       this.buttons.push(statsButton);
       this._drawSmallButton(ctx, statsButton);
     }
@@ -305,14 +337,27 @@ class Menu {
     });
   }
 
-  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind) {
+  // `config`/`editingName` are only passed from the Briefing screen, where
+  // names are editable; the pause menu's Change Controls screen omits them
+  // and gets the plain, unchanged header instead.
+  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind, config, editingName) {
     const colors = Menu.PLAYER_COLORS;
     const bindings = Input.playerBindings[playerIndex];
+    const label = `P${playerIndex + 1}`;
+
+    if (config) {
+      this._drawNameField(
+        ctx,
+        { id: `rename:${label}`, x: 20, y: y - 16, w: 96, h: 16, nameKind: 'tank', nameKey: label },
+        Menu.displayName(config, label),
+        editingName
+      );
+    }
 
     ctx.fillStyle = colors[playerIndex];
-    ctx.font = 'bold 14px sans-serif';
+    ctx.font = config ? 'bold 11px sans-serif' : 'bold 14px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`PLAYER ${playerIndex + 1}`, 20, y);
+    ctx.fillText(`PLAYER ${playerIndex + 1}`, config ? 124 : 20, config ? y - 4 : y);
 
     const actions = ['forward', 'backward', 'left', 'right', 'fire'];
     const shortLabels = ['Fwd', 'Back', 'Left', 'Right', 'Fire'];
@@ -338,13 +383,21 @@ class Menu {
     });
   }
 
-  _drawAiBriefingRow(ctx, aiIndex, y, difficulty) {
+  _drawAiBriefingRow(ctx, aiIndex, y, difficulty, config, editingName) {
     const colors = Menu.AI_COLORS;
+    const label = `AI${aiIndex + 1}`;
+
+    this._drawNameField(
+      ctx,
+      { id: `rename:${label}`, x: 340, y: y - 16, w: 96, h: 16, nameKind: 'tank', nameKey: label },
+      Menu.displayName(config, label),
+      editingName
+    );
 
     ctx.fillStyle = colors[aiIndex];
-    ctx.font = 'bold 14px sans-serif';
+    ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`AI ${aiIndex + 1}`, 340, y);
+    ctx.fillText(`AI ${aiIndex + 1}`, 444, y - 4);
 
     const tiers = [
       { id: 'easy', label: 'Easy' },
@@ -377,7 +430,7 @@ class Menu {
   // assignment, so you can drop back to all-vs-all without navigating back
   // a screen. Tanks are dragged between the two boxes; clicking one swaps
   // it to the other team instead.
-  drawTeamAssignScreen(ctx, canvas, config) {
+  drawTeamAssignScreen(ctx, canvas, config, editingName) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
     this.buttons = [];
     this.tokens = [];
@@ -399,9 +452,11 @@ class Menu {
     ctx.textAlign = 'center';
     ctx.font = '10px sans-serif';
     ctx.fillStyle = teamsOn ? '#cfcfcf' : '#7d8f71';
-    ctx.fillText('Click and drag tanks between teams — or click one to swap sides', canvas.width / 2, 118);
+    ctx.fillText('Drag tanks between teams, or click one to swap sides. Click a team name to rename it.', canvas.width / 2, 118);
 
-    Menu.TEAM_IDS.forEach((teamId, i) => this._drawTeamBox(ctx, canvas, config, teamId, 138 + i * 116, teamsOn));
+    Menu.TEAM_IDS.forEach((teamId, i) =>
+      this._drawTeamBox(ctx, canvas, config, teamId, 138 + i * 116, teamsOn, editingName)
+    );
 
     const counts = Menu.teamCounts(config);
     if (teamsOn && (counts['1'] === 0 || counts['2'] === 0)) {
@@ -430,6 +485,7 @@ class Menu {
         ctx,
         {
           slotLabel: this.drag.slotLabel,
+          name: this.drag.name,
           color: this.drag.color,
           x: this.drag.x - this.drag.offsetX,
           y: this.drag.y - this.drag.offsetY,
@@ -475,13 +531,27 @@ class Menu {
   // One team's drop zone plus the tanks currently assigned to it. When
   // all-vs-all is selected the box is drawn dimmed and registers neither a
   // drop zone nor draggable tokens, so the whole screen goes inert.
-  _drawTeamBox(ctx, canvas, config, teamId, top, enabled) {
+  _drawTeamBox(ctx, canvas, config, teamId, top, enabled, editingName) {
     const box = { x: 40, y: top + 6, w: canvas.width - 80, h: 86 };
 
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillStyle = enabled ? Menu.TEAM_COLORS[teamId] : '#6f7f63';
-    ctx.fillText(`Team ${teamId}`, box.x + 2, top);
+    // The heading doubles as the team's name field. It's only editable in
+    // team mode — renaming a team you've just switched away from would be
+    // an odd thing to offer.
+    if (enabled) {
+      this._drawNameField(
+        ctx,
+        { id: `renameTeam:${teamId}`, x: box.x, y: top - 13, w: 120, h: 17, nameKind: 'team', nameKey: teamId },
+        Menu.teamName(config, teamId),
+        editingName
+      );
+      ctx.fillStyle = Menu.TEAM_COLORS[teamId];
+      ctx.fillRect(box.x, top + 2, 120, 2); // team-colored underline, so the box still reads as this team's
+    } else {
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillStyle = '#6f7f63';
+      ctx.fillText(Menu.teamName(config, teamId), box.x + 2, top);
+    }
 
     const dragOver = enabled && this.drag && this.drag.teamId !== teamId && Menu._hits(this.drag.x, this.drag.y, box);
 
@@ -498,7 +568,16 @@ class Menu {
     let x = box.x + 12;
 
     members.forEach((slot) => {
-      const token = { slotLabel: slot.label, teamId, color: Menu.slotColor(slot), x, y: box.y + 12, w: 62, h: 62 };
+      const token = {
+        slotLabel: slot.label,
+        name: Menu.displayName(config, slot.label),
+        teamId,
+        color: Menu.slotColor(slot),
+        x,
+        y: box.y + 12,
+        w: 62,
+        h: 62
+      };
       // The tank under the cursor is drawn there instead, but its gap stays
       // open so it stays obvious where it was picked up from.
       const held = this.drag && this.drag.slotLabel === slot.label;
@@ -534,9 +613,69 @@ class Menu {
     ctx.strokeRect(token.x + 12, token.y + 12, 38, 30);
 
     ctx.fillStyle = enabled ? '#fff' : '#8a8a8a';
-    ctx.font = 'bold 13px sans-serif';
+    // 12px rather than 13 so a full-length 8-character custom name still
+    // fits inside the token's width (GAME_SPEC.md section 9.4).
+    ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(token.slotLabel, token.x + token.w / 2, token.y + 58);
+    ctx.fillText(token.name || token.slotLabel, token.x + token.w / 2, token.y + 58);
+  }
+
+  // Drawn last of all (main.js calls this after every screen and overlay),
+  // so a tooltip can spill outside whatever drew its target and still sit
+  // on top of everything.
+  drawTooltip(ctx, canvas) {
+    const target = this.hoverTargets.find((t) => Menu._hits(this.pointer.x, this.pointer.y, t));
+    if (!target) return;
+
+    ctx.font = '11px sans-serif';
+    const padding = 8;
+    const w = ctx.measureText(target.tooltip).width + padding * 2;
+    const h = 26;
+
+    // Prefer above-right of the cursor, but flip or clamp whenever that
+    // would run off the canvas, so the text is never clipped.
+    let x = this.pointer.x + 12;
+    let y = this.pointer.y - h - 8;
+    if (x + w > canvas.width - 6) x = this.pointer.x - w - 12;
+    if (x < 6) x = 6;
+    if (y < 6) y = this.pointer.y + 18;
+
+    ctx.fillStyle = 'rgba(10, 10, 10, 0.96)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = Menu.AWARD_TITLE_COLOR;
+    ctx.strokeRect(x, y, w, h);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(target.tooltip, x + padding, y + h / 2);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // An editable name box (GAME_SPEC.md section 9.4): clicking it emits the
+  // button id, main.js starts an edit and owns the keystrokes, and passes
+  // its `editingName` back here so the field can show the live buffer and a
+  // blinking caret. Shows the resolved display name the rest of the time.
+  _drawNameField(ctx, btn, displayName, editing) {
+    const active = editing && editing.kind === btn.nameKind && editing.key === btn.nameKey;
+    this.buttons.push(btn);
+
+    ctx.fillStyle = active ? '#c9903b' : '#3a3a3a';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = active ? '#fff' : '#000';
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+    const text = active ? editing.buffer : displayName;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, btn.x + 6, btn.y + btn.h / 2 + 1);
+
+    if (active && Math.floor(Date.now() / 400) % 2 === 0) {
+      ctx.fillRect(btn.x + 7 + ctx.measureText(text).width, btn.y + 3, 1, btn.h - 6);
+    }
+    ctx.textBaseline = 'alphabetic';
   }
 
   _drawToggleButton(ctx, btn) {
@@ -574,10 +713,11 @@ class Menu {
   // winner: { label, kind: 'player'|'ai' } for whoever's left standing, or
   // { label, kind: 'team', team } for the last team standing in team mode,
   // or null for a draw (simultaneous mutual kill), per GAME_SPEC.md 9/9.2.
-  // stats: label -> { kills, deaths, wins } session tallies (src/main.js),
-  // shown as a scoreboard with a Reset button per HANDOFF.md "Session B" —
-  // in-session tallies only, cleared solely by that button (or a refresh).
-  drawResultScreen(ctx, canvas, winner, stats) {
+  // The tables live in the Scoreboard modal now (one click away via the
+  // button here); this screen instead carries the two or three sharpest
+  // session awards, which is what's worth reading the moment a match ends
+  // (GAME_SPEC.md section 9.3).
+  drawResultScreen(ctx, canvas, winner, stats, config) {
     // A team is a mix of humans and AI, so the player-green/AI-red split
     // doesn't apply to it — a team win gets its own team color instead.
     const bg = !winner
@@ -597,54 +737,132 @@ class Menu {
     const options = [
       { id: 'rematch', label: 'Rematch' },
       { id: 'changeDifficulty', label: 'Change Difficulty' },
-      { id: 'title', label: 'Back to Title' }
+      { id: 'title', label: 'Back to Title' },
+      { id: 'viewStats', label: 'Scoreboard' }
     ];
 
     this.buttons = options.map((opt, i) => ({
       id: opt.id,
       x: canvas.width / 2 - 90,
-      y: 75 + i * 50,
+      y: 72 + i * 48,
       w: 180,
-      h: 42,
+      h: 40,
       label: opt.label
     }));
 
     this.buttons.forEach((btn) => this._drawButton(ctx, btn));
 
-    const centerX = canvas.width / 2;
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Session Stats', centerX, 245);
+    this._drawAwardList(ctx, canvas, Awards.compute(stats).slice(0, 3), config, 292, 'Session Awards');
+  }
 
-    const tableBottom = this._drawScoreTable(ctx, canvas, stats, 265);
-    const resetButton = { id: 'resetStats', x: centerX - 65, y: tableBottom + 20, w: 130, h: 28, label: 'Reset Stats' };
-    this.buttons.push(resetButton);
-    this._drawButton(ctx, resetButton);
+  // Shared by the Result screen (top three only) and the Awards modal (all
+  // of them). Each line registers a hover target so drawTooltip() can
+  // explain what the award actually means.
+  _drawAwardList(ctx, canvas, awards, config, startY, heading) {
+    const centerX = canvas.width / 2;
+    let y = startY;
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(heading, centerX, y);
+
+    if (awards.length === 0) {
+      y += 22;
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#bbb';
+      ctx.fillText('Play a match to start handing out awards.', centerX, y);
+      return y;
+    }
+
+    awards.forEach((award) => {
+      y += 26;
+      const holders = award.holders.map((label) => Menu.displayName(config, label)).join(', ');
+
+      ctx.font = 'bold 12px sans-serif';
+      const titleText = `${award.title}: `;
+      const titleWidth = ctx.measureText(titleText).width;
+      ctx.font = '12px sans-serif';
+      const holderWidth = ctx.measureText(holders).width;
+
+      const left = centerX - (titleWidth + holderWidth) / 2;
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = Menu.AWARD_TITLE_COLOR;
+      ctx.fillText(titleText, left, y);
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(holders, left + titleWidth, y);
+
+      this.hoverTargets.push({
+        x: left,
+        y: y - 12,
+        w: titleWidth + holderWidth,
+        h: 17,
+        tooltip: award.tooltip
+      });
+    });
+
+    ctx.textAlign = 'center';
+    return y;
   }
 
   // Full-screen overlay on top of whichever screen is already drawn (same
-  // "don't clear the canvas first" pattern as drawPauseMenu), reachable
-  // only from Mission Briefing via the Session Stats button, which is
-  // itself only shown once stats exist (see drawBriefingScreen). Lets you
-  // check/reset session tallies before a match without leaving Briefing.
-  drawStatsModal(ctx, canvas, stats) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+  // "don't clear the canvas first" pattern as drawPauseMenu), opened from
+  // Mission Briefing or the Result screen. Holds the numbers — per-tank
+  // ranked by wins, and the team tallies underneath as their own table
+  // (GAME_SPEC.md sections 9.1 and 9.2). The awards live one level deeper,
+  // in drawAwardsModal, so neither view has to be squeezed.
+  drawScoreboardModal(ctx, canvas, stats, teamStats, config) {
+    // Heavier than the pause menu's dimming on purpose: a table of small
+    // numbers is unreadable with a screen's worth of buttons showing through.
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const centerX = canvas.width / 2;
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 22px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Session Stats', centerX, 60);
+    ctx.fillText('Scoreboard', centerX, 44);
 
     this.buttons = [];
-    const tableBottom = this._drawScoreTable(ctx, canvas, stats, 100);
+    let bottom = this._drawScoreTable(ctx, canvas, Menu.rankedTankRows(stats, config), 76, 'Tanks', 'Tank');
 
-    const resetButton = { id: 'resetStats', x: centerX - 90, y: tableBottom + 24, w: 180, h: 40, label: 'Reset Stats' };
-    const closeButton = { id: 'closeStats', x: centerX - 90, y: tableBottom + 74, w: 180, h: 40, label: 'Close' };
-    this.buttons.push(resetButton, closeButton);
-    this._drawButton(ctx, resetButton);
+    const teams = Menu.teamRows(teamStats, config);
+    if (teams.length > 0) {
+      bottom = this._drawScoreTable(ctx, canvas, teams, bottom + 28, 'Teams', 'Team');
+    }
+
+    const row = Math.max(bottom + 24, 300);
+    const awardsButton = { id: 'viewAwards', x: centerX - 186, y: row, w: 180, h: 38, label: 'Awards' };
+    const resetButton = { id: 'resetStats', x: centerX + 6, y: row, w: 180, h: 38, label: 'Reset Stats' };
+    const closeButton = { id: 'closeStats', x: centerX - 90, y: row + 48, w: 180, h: 38, label: 'Close' };
+    this.buttons.push(awardsButton, resetButton, closeButton);
+    this.buttons.forEach((btn) => this._drawButton(ctx, btn));
+  }
+
+  // Drawn over the Scoreboard modal: every award that currently applies,
+  // each explaining itself on hover (GAME_SPEC.md section 9.3).
+  drawAwardsModal(ctx, canvas, stats, config) {
+    // Nearly opaque: this sits on top of the Scoreboard modal, and two
+    // translucent layers of table would show through each other.
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.96)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const centerX = canvas.width / 2;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Awards', centerX, 40);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#bbb';
+    ctx.fillText('Hover an award to see what it means', centerX, 56);
+
+    this.buttons = [];
+    const bottom = this._drawAwardList(ctx, canvas, Awards.compute(stats), config, 80, 'This Session');
+
+    const closeButton = { id: 'closeAwards', x: centerX - 90, y: Math.max(bottom + 24, 400), w: 180, h: 38, label: 'Close' };
+    this.buttons.push(closeButton);
     this._drawButton(ctx, closeButton);
   }
 
@@ -655,17 +873,44 @@ class Menu {
   // (P1/P2/P3 players, AI1/AI2/AI3 AI), skipping slots never used this
   // session. Returns the y coordinate of the last content drawn, so
   // callers can position their own buttons below it.
-  _drawScoreTable(ctx, canvas, stats, startY) {
+  // Tank rows for the scoreboard, ranked by Wins (GAME_SPEC.md 9.1). Kills
+  // break a tie, then fewest deaths, then slot order — so the table never
+  // reshuffles arbitrarily between two tanks with identical records.
+  static rankedTankRows(stats, config) {
     const order = ['P1', 'P2', 'P3', 'AI1', 'AI2', 'AI3'];
-    const labels = order.filter((label) => stats[label]);
+    return order
+      .filter((label) => stats[label])
+      .map((label) => ({ name: Menu.displayName(config, label), ...stats[label] }))
+      .sort((a, b) => b.wins - a.wins || b.kills - a.kills || a.deaths - b.deaths);
+  }
+
+  static teamRows(teamStats, config) {
+    return Menu.TEAM_IDS.filter((teamId) => teamStats[teamId]).map((teamId) => ({
+      name: Menu.teamName(config, teamId),
+      color: Menu.TEAM_COLORS[teamId],
+      ...teamStats[teamId]
+    }));
+  }
+
+  // rows: [{ name, wins, kills, deaths, color? }], already ordered by the
+  // caller. Returns the y of the last line drawn so callers can stack below.
+  _drawScoreTable(ctx, canvas, rows, startY, heading, nameColumnLabel) {
     const centerX = canvas.width / 2;
     const colX = { label: centerX - 150, wins: centerX - 30, kills: centerX + 30, deaths: centerX + 90 };
     let y = startY;
 
+    if (heading) {
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#cfcfcf';
+      ctx.fillText(heading, colX.label, y);
+      y += 16;
+    }
+
     ctx.textAlign = 'left';
     ctx.font = 'bold 11px sans-serif';
     ctx.fillStyle = '#fff';
-    ctx.fillText('Tank', colX.label, y);
+    ctx.fillText(nameColumnLabel || 'Tank', colX.label, y);
     ctx.fillStyle = Menu.STAT_COLORS.wins;
     ctx.fillText(`${Menu.STAT_ICONS.wins} ${Menu.STAT_LABELS.wins}`, colX.wins, y);
     ctx.fillStyle = Menu.STAT_COLORS.kills;
@@ -673,7 +918,7 @@ class Menu {
     ctx.fillStyle = Menu.STAT_COLORS.deaths;
     ctx.fillText(`${Menu.STAT_ICONS.deaths} ${Menu.STAT_LABELS.deaths}`, colX.deaths, y);
 
-    if (labels.length === 0) {
+    if (rows.length === 0) {
       y += 20;
       ctx.fillStyle = '#bbb';
       ctx.font = '12px sans-serif';
@@ -683,18 +928,17 @@ class Menu {
     }
 
     ctx.font = '12px sans-serif';
-    labels.forEach((label) => {
+    rows.forEach((row) => {
       y += 18;
-      const s = stats[label];
       ctx.textAlign = 'left';
-      ctx.fillStyle = Menu.SCORE_LABEL_COLOR;
-      ctx.fillText(label, colX.label, y);
+      ctx.fillStyle = row.color || Menu.SCORE_LABEL_COLOR;
+      ctx.fillText(row.name, colX.label, y);
       ctx.fillStyle = Menu.STAT_COLORS.wins;
-      ctx.fillText(String(s.wins), colX.wins, y);
+      ctx.fillText(String(row.wins), colX.wins, y);
       ctx.fillStyle = Menu.STAT_COLORS.kills;
-      ctx.fillText(String(s.kills), colX.kills, y);
+      ctx.fillText(String(row.kills), colX.kills, y);
       ctx.fillStyle = Menu.STAT_COLORS.deaths;
-      ctx.fillText(String(s.deaths), colX.deaths, y);
+      ctx.fillText(String(row.deaths), colX.deaths, y);
     });
 
     return y;
@@ -813,7 +1057,7 @@ class Menu {
   }
 
   // Compact utility button (smaller font than _drawButton) for corner
-  // controls like Briefing's Session Stats button, where a full-size
+  // controls like Briefing's Scoreboard button, where a full-size
   // button would overwhelm the layout.
   _drawSmallButton(ctx, btn) {
     ctx.fillStyle = '#3b6ea5';
