@@ -43,6 +43,28 @@ class Menu {
     return custom || `Team ${teamId}`;
   }
 
+  // Small flag icon (pole + pennant) for labeling a team in UI text — the
+  // Team Setup heading, the Scoreboard's team rows, and the Result screen
+  // banner. Same silhouette as the in-match flag main.js plants on a tank
+  // (drawTeamFlag), just sized for inline text instead of a tank sprite.
+  // (x, y) is the icon's top-left corner; `size` is its full height.
+  static drawFlagIcon(ctx, x, y, teamId, size) {
+    const poleW = Math.max(1, Math.round(size / 8));
+
+    ctx.fillStyle = '#2b2b2b';
+    ctx.fillRect(x, y, poleW, size);
+
+    ctx.fillStyle = Menu.TEAM_COLORS[teamId];
+    ctx.beginPath();
+    ctx.moveTo(x + poleW, y);
+    ctx.lineTo(x + poleW + size * 0.7, y + size * 0.3);
+    ctx.lineTo(x + poleW, y + size * 0.58);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#00000066';
+    ctx.stroke();
+  }
+
   constructor(canvas) {
     this.canvas = canvas;
     this.buttons = [];
@@ -540,6 +562,9 @@ class Menu {
   // drop zone nor draggable tokens, so the whole screen goes inert.
   _drawTeamBox(ctx, canvas, config, teamId, top, enabled, editingName) {
     const box = { x: 40, y: top + 6, w: canvas.width - 80, h: 86 };
+    const headingX = box.x + 18; // leaves room for the flag icon at box.x
+
+    if (enabled) Menu.drawFlagIcon(ctx, box.x, top - 14, teamId, 14);
 
     // The heading doubles as the team's name field. It's only editable in
     // team mode — renaming a team you've just switched away from would be
@@ -547,12 +572,12 @@ class Menu {
     if (enabled) {
       this._drawNameField(
         ctx,
-        { id: `renameTeam:${teamId}`, x: box.x, y: top - 13, w: 120, h: 17, nameKind: 'team', nameKey: teamId },
+        { id: `renameTeam:${teamId}`, x: headingX, y: top - 13, w: 120, h: 17, nameKind: 'team', nameKey: teamId },
         Menu.teamName(config, teamId),
         editingName
       );
       ctx.fillStyle = Menu.TEAM_COLORS[teamId];
-      ctx.fillRect(box.x, top + 2, 120, 2); // team-colored underline, so the box still reads as this team's
+      ctx.fillRect(headingX, top + 2, 120, 2); // team-colored underline, so the box still reads as this team's
     } else {
       ctx.textAlign = 'left';
       ctx.font = 'bold 14px sans-serif';
@@ -775,10 +800,23 @@ class Menu {
           : '#4a1e1e';
     this._drawBackground(ctx, canvas, bg);
 
-    ctx.fillStyle = '#fff';
+    // A team win flies its flag beside the banner text. Centering the pair
+    // means measuring the text first and offsetting both the icon and the
+    // text from that combined width, rather than centering the text alone.
     ctx.font = 'bold 30px sans-serif';
+    const bannerText = winner ? `${winner.label} Wins!` : 'Draw';
+    const showFlag = winner && winner.kind === 'team';
+    const flagSize = 26;
+    const flagGap = 10;
+    const textWidth = ctx.measureText(bannerText).width;
+    const groupLeft = canvas.width / 2 - (textWidth + (showFlag ? flagSize + flagGap : 0)) / 2;
+
+    if (showFlag) Menu.drawFlagIcon(ctx, groupLeft, 45 - flagSize * 0.62, winner.team, flagSize);
+
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(bannerText, groupLeft + (showFlag ? flagSize + flagGap : 0), 45);
     ctx.textAlign = 'center';
-    ctx.fillText(winner ? `${winner.label} Wins!` : 'Draw', canvas.width / 2, 45);
 
     const options = [
       { id: 'rematch', label: 'Rematch' },
@@ -970,6 +1008,7 @@ class Menu {
     return Menu.TEAM_IDS.filter((teamId) => teamStats[teamId]).map((teamId) => ({
       name: Menu.teamName(config, teamId),
       color: Menu.TEAM_COLORS[teamId],
+      teamId,
       ...teamStats[teamId]
     }));
   }
@@ -1014,7 +1053,9 @@ class Menu {
       y += 18;
       ctx.textAlign = 'left';
       ctx.fillStyle = row.color || Menu.SCORE_LABEL_COLOR;
-      ctx.fillText(row.name, colX.label, y);
+      const nameX = row.teamId ? colX.label + 15 : colX.label;
+      if (row.teamId) Menu.drawFlagIcon(ctx, colX.label, y - 9, row.teamId, 11);
+      ctx.fillText(row.name, nameX, y);
       ctx.fillStyle = Menu.STAT_COLORS.wins;
       ctx.fillText(String(row.wins), colX.wins, y);
       ctx.fillStyle = Menu.STAT_COLORS.kills;

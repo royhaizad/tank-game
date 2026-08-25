@@ -602,7 +602,11 @@ Team 2; any tank can be moved to either team.
 - Both teams must have at least one tank for a match to start.
 - Team colors (Team 1 blue, Team 2 orange) are a team identity of their
   own, distinct from each tank's individual color, since a team is a mix
-  of human and AI tanks.
+  of human and AI tanks. A small flag icon in that color marks a team's
+  name everywhere it's written out as text — the Team Setup heading, the
+  Result Screen's "`<team>` Wins!" banner, and the Scoreboard's team
+  rows — the same pole-and-pennant shape as the in-match flag below, sized
+  for text instead of a tank.
 
 **In-match identification.** Each tank flies a small team-colored flag,
 drawn as a separate pass layered over the tank rather than as part of the
