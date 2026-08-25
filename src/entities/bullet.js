@@ -6,21 +6,24 @@
 // One class covers every projectile weapon (GAME_SPEC.md section 4) via
 // `kind`: the base cannon shot, gatling rounds, shotgun pellets and the
 // homing missile all bounce off walls the same way and differ only in the
-// tuning below. The laser is NOT a bullet — it's an instant-hit beam, see
-// laser.js.
+// tuning below. The laser is NOT a bullet — it's a fast beam with its own
+// travel/reflection logic, see laser.js.
 class Bullet {
   // Per-kind tuning. Each non-cannon kind's numbers are what give that
   // weapon its drawback: pellets die fast (short range), gatling rounds
-  // are small and numerous (ricochet self-risk), the missile is slow
-  // enough to outrun but homes on the NEAREST tank, shooter included.
+  // are small and numerous (ricochet self-risk), the missile flies dumb
+  // and fast at first, then slows down once it locks onto the nearest
+  // OTHER tank (never its own shooter) — the slowdown is what keeps a
+  // homing missile from being an unavoidable instant snipe.
   static KINDS = {
     cannon: { speed: 160, radius: 3, maxLifetime: 6, maxBounces: 5, color: '#f2c14e' },
     gatling: { speed: 190, radius: 2, maxLifetime: 4, maxBounces: 4, color: '#e8eef2' },
     pellet: { speed: 200, radius: 2, maxLifetime: 0.8, maxBounces: 2, color: '#e08a3c' },
     missile: {
       speed: 130,
+      homingSpeed: 90, // px/s, slower once it starts homing
       radius: 4,
-      maxLifetime: 6,
+      maxLifetime: 9,
       maxBounces: 3,
       color: '#d94f4f',
       straightTime: 1, // s of dumb straight flight before homing kicks in
@@ -72,19 +75,21 @@ class Bullet {
     this.y = result.y;
   }
 
-  // Homing missile, per GAME_SPEC.md section 4: flies straight for
-  // straightTime, then curves toward whichever living tank is nearest —
-  // explicitly including the tank that fired it, which is the missile's
-  // drawback. Turn rate is capped, so a missile that overshoots has to
-  // swing back around and can easily find its own shooter on the way.
+  // Homing missile, per GAME_SPEC.md section 4: flies straight (and
+  // fast) for straightTime, then slows down and curves toward whichever
+  // OTHER living tank is nearest — the shooter itself is never a valid
+  // target. Turn rate is capped, so a missile that overshoots has to
+  // swing back around rather than snapping straight onto its target.
   _steerTowardNearestTank(dt, matchTanks) {
     if (this.lifetime < Bullet.KINDS.missile.straightTime) return;
+
+    this.speed = Bullet.KINDS.missile.homingSpeed;
     if (!matchTanks) return;
 
     let nearest = null;
     let nearestDistSq = Infinity;
     for (const entry of matchTanks) {
-      if (entry.tank.destroyed) continue;
+      if (entry.tank.destroyed || entry.tank === this.owner) continue;
       const dx = entry.tank.x - this.x;
       const dy = entry.tank.y - this.y;
       const distSq = dx * dx + dy * dy;

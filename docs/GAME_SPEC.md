@@ -88,21 +88,22 @@ All power-up state resets every match (see section 10).
 |---|---|---|
 | **Gatling Gun** | Fires continuously while held (~0.09s between rounds, so a held burst empties in ~1.4s), normal bounce physics per bullet, all 15 rounds can be in flight at once | 15 rounds |
 | **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.8s (~2 cells) | 3 shots |
-| **Homing Missile** | Travels straight 1 second, then curves toward the nearest tank at a capped turn rate — nearest explicitly includes its own shooter, so an overshoot can come back for you | 1 shot |
-| **Shield** | Visible bubble for 6 seconds that deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs an enemy's laser beam (the wearer's own laser still hits them; see the Laser row). Not a weapon: picking it up grants the bubble and leaves the tank on its base cannon | — |
-| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner. Stepping on a hidden mine reveals it again (with a sound); stepping back OFF it detonates it into 8 shrapnel pieces sprayed outward (with a sound) — the mine itself never hurts anyone, only its shrapnel does, and shrapnel does not reflect off walls (it stops dead on contact, unlike a bullet). The mine's dropper gets one free departure (stepping off doesn't detonate it the first time) — after that grace is used, stepping off again detonates it on them exactly like anyone else | 3 mines |
-| **Laser** | Instant-hit beam that bounces off every wall (interior AND the outer boundary) with the same mirror-angle reflection as the cannon, up to 5 bounces. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped, tracing the beam's real bounce path — both an aiming aid and a telegraph. Firing resolves instantly, no charge delay | 1 shot |
+| **Homing Missile** | Travels straight and fast for 1 second, then slows down and curves toward the nearest OTHER tank at a capped turn rate — the missile's own shooter is never a valid target | 1 shot |
+| **Shield** | Visible bubble for 10 seconds that deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs an enemy's laser beam (the wearer's own laser still hits them; see the Laser row). Not a weapon: picking it up grants the bubble and leaves the tank on its base cannon | — |
+| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner. Stepping on a hidden mine reveals it again (with a sound); stepping back OFF it detonates it into 8 shrapnel pieces sprayed outward (with a sound) — the mine itself never hurts anyone, only its shrapnel does, and shrapnel does not reflect off walls (it stops dead on contact, unlike a bullet). The trigger radius is a full 12px (matching the mine's drawn black body, not just its small red center marker). The mine's dropper gets one free departure (stepping off doesn't detonate it the first time) — after that grace is used, stepping off again detonates it on them exactly like anyone else | 3 mines |
+| **Laser** | A fast (not instant) beam that bounces off every wall (interior AND the outer boundary) with the same mirror-angle reflection as the cannon, up to 5 bounces. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped, tracing the beam's real bounce path — both an aiming aid and a telegraph. Firing locks that path immediately, but the beam then visibly travels it at high speed rather than resolving on the spot, giving whoever's in the way a brief window to break line of sight before it actually reaches them | 1 shot |
 
 **Design rule:** every power-up trades extra power for a real risk
 (self-damage potential, limited range, low ammo, or setup delay). Preserve
 this balance in any future power-up added. Which drawback each one carries:
 gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
-yourself; shotgun — useless past ~2 cells; missile — homes on the nearest
-tank, shooter included; shield — only 6s, and purely defensive (no
-offense of its own, and a mine or your own laser still gets through);
-mine — invisible to you too, and its shrapnel doesn't care who dropped it
-once your one grace departure is spent; laser — just 1 shot, and the aim
-line telegraphs it to every other player.
+yourself; shotgun — useless past ~2 cells; missile — slow once it's
+actually homing, giving its target time to react; shield — purely
+defensive (no offense of its own, and a mine or your own laser still gets
+through); mine — invisible to you too, and its shrapnel doesn't care who
+dropped it once your one grace departure is spent; laser — just 1 shot,
+telegraphed by the aim line, and its brief travel time is a real (if
+narrow) dodge window.
 
 **Ammo/rate overrides:** a picked-up weapon may override the tank's own
 firing limits (in-flight bullet cap, cooldown, and the hold-to-repeat
@@ -314,13 +315,16 @@ the equip chime.
 
 Free-for-all, always — there is no team distinction between players and AI
 (see section 5's Targeting note); a bullet destroys whatever tank it
-touches regardless of who fired it. A destroyed tank is removed from play
-but the match continues; it ends when exactly one tank remains, and that
-tank's controller (a specific player, or a specific AI) wins. (Edge case:
-if the last two-or-more tanks are destroyed in the same instant — e.g. a
-mutual point-blank kill — treat it as a draw; no player/AI is declared the
-winner.) Result Screen shows within 1 second of the last death animation
-finishing.
+touches regardless of who fired it. A destroyed tank plays a brief
+explosion animation where it died and is removed from play, but the match
+continues; it ends when exactly one tank remains, and that tank's
+controller (a specific player, or a specific AI) wins. (Edge case: if the
+last two-or-more tanks are destroyed in the same instant — e.g. a mutual
+point-blank kill — treat it as a draw; no player/AI is declared the
+winner.) Once the match-ending kill happens, the battlefield freezes
+exactly as it stood at that moment (only the explosion keeps animating)
+for 2 seconds before the Result Screen appears, so the final death reads
+clearly instead of cutting away instantly.
 
 ### 9.1 Session Stats (Win/Kill/Death tallies)
 

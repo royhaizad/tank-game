@@ -22,7 +22,14 @@ let briefingStatsOpen = false; // whether the Session Stats modal is showing on 
 // Live match state. crates/mines/beams/shrapnel are the power-up side of
 // it (GAME_SPEC.md section 4); each is rebuilt fresh every match, per
 // section 10's "power-up state fully reset every new match".
-let maze, matchTanks, bullets, crates, mines, beams, shrapnel;
+let maze, matchTanks, bullets, crates, mines, beams, shrapnel, explosions;
+
+// Seconds left before the match actually switches to the Result screen,
+// once a win/draw is detected — null while the match is still live. Lets
+// the last kill's explosion play out instead of cutting straight to
+// Result.
+const RESULT_DELAY = 2; // s
+let matchEndTimer = null;
 
 // Session-only Kill/Death/Win tallies per HANDOFF.md "Session B" decisions:
 // in-session tallies (not a ranking system), keyed by slot label (P1/AI1/...)
@@ -73,6 +80,8 @@ function startMatch() {
   mines = new MineField();
   beams = [];
   shrapnel = [];
+  explosions = [];
+  matchEndTimer = null;
   winner = null;
   screen = 'match';
 }
@@ -89,18 +98,20 @@ function tryFire(tank, clickWhenBlocked) {
   }
   if (!tank.canFire(activeBulletCount(tank))) return;
 
-  WeaponFire.fire(tank, maze, bullets, mines, beams, matchTanks);
+  WeaponFire.fire(tank, maze, bullets, mines, beams);
   tank.cooldownRemaining = tank.effectiveFireCooldown();
 }
 
-// Removes a tank from play and books the stats, per GAME_SPEC.md section
-// 9.1. Shared by every lethal thing in a match (bullets, mines, laser
-// beams) so a kill is credited the same way no matter what caused it. A
-// self-kill counts as a death but never as a kill (section 3.2).
+// Removes a tank from play, spawns its explosion, and books the stats,
+// per GAME_SPEC.md section 9.1. Shared by every lethal thing in a match
+// (bullets, mine shrapnel, laser beams) so a kill is credited the same
+// way no matter what caused it. A self-kill counts as a death but never
+// as a kill (section 3.2).
 function destroyTank(entry, ownerTank) {
   if (entry.tank.destroyed) return;
 
   entry.tank.destroyed = true;
+  explosions.push(new Explosion(entry.tank.x, entry.tank.y));
   ensureStats(entry.label).deaths++;
 
   if (ownerTank && ownerTank !== entry.tank) {
@@ -110,6 +121,21 @@ function destroyTank(entry, ownerTank) {
 }
 
 function updateMatch(dt) {
+  // Once a win/draw is detected, freeze the battlefield exactly as it
+  // stood at that moment — only the explosion(s) keep animating — for
+  // RESULT_DELAY seconds before actually switching to the Result screen.
+  if (matchEndTimer !== null) {
+    explosions.forEach((explosion) => explosion.update(dt));
+    explosions = explosions.filter((explosion) => explosion.alive);
+
+    matchEndTimer -= dt;
+    if (matchEndTimer <= 0) {
+      matchEndTimer = null;
+      screen = 'result';
+    }
+    return;
+  }
+
   matchTanks.forEach((entry) => {
     if (entry.tank.destroyed) return;
 
@@ -165,7 +191,7 @@ function updateMatch(dt) {
   shrapnel.push(...mineEvents.shrapnel);
 
   beams.forEach((beam) => {
-    beam.update(dt);
+    beam.update(dt, matchTanks);
     beam.pendingHits.forEach((victim) => destroyTank(victim, beam.owner));
     beam.pendingHits = [];
   });
@@ -219,11 +245,14 @@ function updateMatch(dt) {
 
   bullets = bullets.filter((bullet) => bullet.alive);
 
+  explosions.forEach((explosion) => explosion.update(dt));
+  explosions = explosions.filter((explosion) => explosion.alive);
+
   const survivors = matchTanks.filter((entry) => !entry.tank.destroyed);
   if (survivors.length <= 1) {
     winner = survivors.length === 1 ? { label: survivors[0].label, kind: survivors[0].kind } : null;
     if (winner) ensureStats(winner.label).wins++;
-    screen = 'result';
+    matchEndTimer = RESULT_DELAY;
   }
 }
 
@@ -250,6 +279,7 @@ function drawMatchScene() {
   bullets.forEach((bullet) => bullet.draw(ctx));
   beams.forEach((beam) => beam.draw(ctx));
   shrapnel.forEach((piece) => piece.draw(ctx));
+  explosions.forEach((explosion) => explosion.draw(ctx));
 
   const playerEntries = matchTanks.filter((entry) => entry.kind === 'player');
   hud.draw(ctx, canvas, playerEntries, activeBulletCount, stats);

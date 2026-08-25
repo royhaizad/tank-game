@@ -15,7 +15,7 @@
 class Mine {
   static ARM_DELAY = 0.35; // s before the mine can be triggered at all
   static VISIBLE_FOR = 1; // s the mine stays visible right after being dropped
-  static TRIGGER_RADIUS = 6; // px, mine's own body radius (plus the tank's)
+  static TRIGGER_RADIUS = 12; // px, mine's own body radius (plus the tank's) — same radius as the drawn black circle, not the small red center dot
 
   constructor(x, y, owner) {
     this.x = x;

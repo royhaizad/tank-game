@@ -63,11 +63,21 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   - **Laser** (`laser.js`) bounces off every wall — interior and the outer boundary —
     with the exact same mirror-angle reflection as the cannon, up to
     `LaserBeam.MAX_BOUNCES` (5), by reusing `Maze.moveWithBounce` directly rather than
-    reimplementing the math. Fires instantly at construction time (no charge delay);
-    `LaserBeam.traceBounce()` is the shared raycast used by both the fired shot and
-    the dotted aim-preview (which is walls-only, so it never reveals tank positions
-    the shooter couldn't already see). `WeaponFire.fire()` now needs `matchTanks`
-    passed through for this reason — threaded via `tryFire()` in `main.js`.
+    reimplementing the math. `LaserBeam.traceBounce()` (wall-only, no tank positions)
+    computes that fixed path once at fire time — geometry only — and is shared with
+    the dotted aim-preview. Firing does NOT resolve instantly: `LaserBeam.update()`
+    advances a "travelled" distance along that path each frame at
+    `LaserBeam.TRAVEL_SPEED` (1400 px/s) and hit-tests against LIVE tank positions as
+    it goes (substepped via `HIT_SUBSTEPS` so a fast frame can't skip a tank), so a
+    target has a brief real window to dodge after the shot is locked in but before it
+    lands. `draw()` renders the beam growing toward its target (`_truncatedPoints()`)
+    rather than appearing all at once. `WeaponFire.fire()` and the beams update loop
+    in `main.js` pass `matchTanks` through to `update()`, not the constructor.
+  - **Missile** (`bullet.js`, `Bullet.KINDS.missile`) slows from `speed` (130) to
+    `homingSpeed` (90) the moment it starts homing (previously constant speed the
+    whole flight), and `_steerTowardNearestTank()` now explicitly skips
+    `entry.tank === this.owner` — the shooter can no longer be its own missile's
+    target. `maxLifetime` raised 6s -> 9s so the slower missile has time to close in.
   - **Mine** (`mine.js` + `shrapnel.js`) no longer kills on contact. A hidden, armed
     mine reveals itself (and plays a sound) the instant a tank steps on it; stepping
     back off it detonates it into `Shrapnel.COUNT` (8) pieces sprayed outward (and
@@ -76,6 +86,16 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
     at a wall instead of reflecting. The dropper's mine still grants one free
     departure (`Mine.ownerHasLeft`) before it turns lethal on them too, same grace
     rule as the old direct-contact version, just applied to the new step-off trigger.
+    `Mine.TRIGGER_RADIUS` doubled to 12 (was 6) — it already drove both the hitbox
+    and the drawn black circle's radius, so this was a pure size bump, not a
+    hitbox/visual mismatch fix.
+  - **Shield** (`weapon.js`, `Weapons.defs.shield.duration`) extended 6s -> 10s.
+  - **Explosion** (`explosion.js`, new): a canvas-drawn flash + expanding rings,
+    spawned by `destroyTank()` in `main.js` for every kill regardless of cause. When
+    the match-ending kill drops survivors to ≤1, `updateMatch()` no longer switches to
+    `screen = 'result'` immediately — it sets `matchEndTimer = RESULT_DELAY` (2s) and,
+    while that's counting down, short-circuits to only updating/drawing explosions
+    (everything else stays frozen at its final position) until the timer expires.
 
 ## Planned next
 

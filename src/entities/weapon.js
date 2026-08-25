@@ -92,16 +92,16 @@ Weapons.defs = {
   // Not fired — picking it up grants a 6s bubble and leaves the tank on
   // the base cannon (see Tank.equipWeapon). Deflects ANY bullet, including
   // its own wearer's returning ricochet (GAME_SPEC.md section 4); an
-  // enemy's laser is absorbed the same way, but a mine still kills on
-  // contact regardless (see mine.js), and the wearer's OWN laser still
-  // hits them (see laser.js) — the shield only ever protects against
-  // someone/something else's shot when it comes to lasers. Drawback: 6s
-  // is short, and it offers no offense of its own.
+  // enemy's laser is absorbed the same way, but shrapnel from a mine
+  // (see mine.js/shrapnel.js) still kills through it regardless, and the
+  // wearer's OWN laser still hits them (see laser.js) — the shield only
+  // ever protects against someone/something else's shot when it comes to
+  // lasers. Drawback: purely defensive, no offense of its own.
   shield: {
     name: 'Shield',
     color: '#5bc8f5',
     ammo: 0,
-    duration: 6
+    duration: 10
   },
 
   // Drawback: invisible after 1s to EVERYONE including whoever dropped
@@ -118,8 +118,11 @@ Weapons.defs = {
     needsClearBarrel: false // dropped under the tank, not out of the barrel
   },
 
-  // Fires instantly, bouncing off walls exactly like the cannon (see
-  // laser.js) — the dotted aim line traces that real bounce path while
+  // Fires fast but not instant — bounces off walls exactly like the
+  // cannon (see laser.js) along a path locked the moment fire is pressed,
+  // but the beam then visibly travels that path rather than resolving on
+  // the spot, giving whoever's in the way a brief chance to break line of
+  // sight. The dotted aim line traces that same real bounce path while
   // equipped, doubling as both an aiming aid and a telegraph: every
   // player can see it, not just the shooter. Drawback: just 1 shot.
   laser: {
@@ -256,9 +259,7 @@ const WeaponFire = {
     return Weapons.def(tank.weapon).needsClearBarrel !== false;
   },
 
-  // matchTanks is only used by the laser, which resolves its hit(s)
-  // instantly at fire time rather than lazily during a later update().
-  fire(tank, maze, bullets, mines, beams, matchTanks) {
+  fire(tank, maze, bullets, mines, beams) {
     const def = Weapons.def(tank.weapon);
     const tip = tank.getBarrelTip();
 
@@ -278,7 +279,7 @@ const WeaponFire = {
         break;
 
       case Weapons.LASER:
-        beams.push(new LaserBeam(tank, maze, matchTanks));
+        beams.push(new LaserBeam(tank, maze));
         break;
 
       default:
