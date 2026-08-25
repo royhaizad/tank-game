@@ -89,16 +89,17 @@ Weapons.defs = {
     bulletKind: 'missile'
   },
 
-  // Not fired, and not really a "weapon" — picking it up grants a 10s
-  // bubble as a buff layered on top of whatever's currently equipped
-  // (see Tank.equipWeapon), rather than replacing it. Deflects ANY
-  // bullet, including its own wearer's returning ricochet (GAME_SPEC.md
-  // section 4); an enemy's laser is absorbed the same way, but shrapnel
-  // from a mine (see mine.js/shrapnel.js) still kills through it
-  // regardless, and the wearer's OWN laser still hits them (see
-  // laser.js) — the shield only ever protects against someone/
-  // something else's shot when it comes to lasers. Drawback: purely
-  // defensive, no offense of its own.
+  // Not fired via WeaponFire, and not really a "weapon" — picking it up
+  // just arms a 10s charge as a buff layered on top of whatever's
+  // currently equipped (see Tank.equipWeapon), rather than replacing it.
+  // The charge doesn't activate on pickup: the NEXT fire press pops it
+  // into an active bubble (Tank.tryActivateShieldCharge, called from
+  // main.js's tryFire), whether or not that press's actual shot goes
+  // through. Deflects ANY bullet once active, including its own wearer's
+  // returning ricochet (GAME_SPEC.md section 4), and absorbs shrapnel
+  // from a mine and an enemy's laser the same way — but the wearer's OWN
+  // laser still hits them (see laser.js). Drawback: purely defensive, no
+  // offense of its own, and the charge does nothing until you fire.
   shield: {
     name: 'Shield',
     color: '#5bc8f5',

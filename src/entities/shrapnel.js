@@ -3,8 +3,7 @@
 // straight from the blast until it hits a tank, hits a wall, or its short
 // range runs out, whichever comes first (see Maze.moveStraight).
 class Shrapnel {
-  static COUNT = 8; // pieces per detonation, spaced evenly around the blast
-  static SPREAD_JITTER = 0.14; // rad (~8deg) of random wobble per piece
+  static COUNT = 8; // pieces per detonation
   static SPEED = 180; // px/s
   static MAX_LIFETIME = 1.1; // s -> ~200px / ~2.5 cells, a medium blast radius
   static RADIUS = 2.5; // px
@@ -19,14 +18,12 @@ class Shrapnel {
     this.alive = true;
   }
 
-  // Spawns Shrapnel.COUNT pieces around a full circle, evenly spaced with
-  // a little jitter so a blast doesn't read as a perfectly mechanical fan.
+  // Spawns Shrapnel.COUNT pieces in fully random directions — no even
+  // spacing, so a blast never reads as a predictable fan of angles.
   static burst(x, y, owner) {
     const pieces = [];
-    const step = (Math.PI * 2) / Shrapnel.COUNT;
     for (let i = 0; i < Shrapnel.COUNT; i++) {
-      const angle = i * step + (Math.random() - 0.5) * Shrapnel.SPREAD_JITTER;
-      pieces.push(new Shrapnel(x, y, angle, owner));
+      pieces.push(new Shrapnel(x, y, Math.random() * Math.PI * 2, owner));
     }
     return pieces;
   }

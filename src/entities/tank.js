@@ -37,23 +37,38 @@ class Tank {
     // unable to shoot when a picked-up weapon runs dry.
     this.weapon = Weapons.CANNON;
     this.weaponAmmo = Infinity;
-    this.shieldRemaining = 0; // s left on the shield bubble
+    this.shieldRemaining = 0; // s left on the ACTIVE shield bubble
+    this.shieldCharged = false; // true once picked up, until the next fire press activates it
     this.shieldRadius = this.radius + 8; // px
   }
 
   // Swaps to a crate's weapon. Shield is the odd one out: it's not fired
-  // and isn't really a "weapon" the tank holds — picking it up grants the
-  // bubble as a buff layered on top of whatever's currently equipped,
-  // leaving that weapon (and its remaining ammo) untouched.
+  // and isn't really a "weapon" the tank holds — picking it up just arms
+  // a charge (as a buff layered on top of whatever's currently equipped,
+  // leaving that weapon and its remaining ammo untouched) rather than
+  // activating the bubble outright. The charge sits ready until the next
+  // fire press pops it, via tryActivateShieldCharge().
   equipWeapon(type) {
     const def = Weapons.def(type);
     if (type === Weapons.SHIELD) {
-      this.shieldRemaining = def.duration;
+      this.shieldCharged = true;
       return;
     }
     this.weapon = type;
     this.weaponAmmo = def.ammo;
     this.cooldownRemaining = 0; // a fresh weapon is ready immediately
+  }
+
+  // Pops a pending shield charge into an active bubble — called the
+  // instant a fire press is attempted (see tryFire in main.js), whether
+  // or not the tank's actual weapon manages to fire, so pressing shoot
+  // always reliably activates a held charge. Returns whether it did
+  // anything, so the caller knows whether to play the activation sound.
+  tryActivateShieldCharge() {
+    if (!this.shieldCharged) return false;
+    this.shieldCharged = false;
+    this.shieldRemaining = Weapons.def(Weapons.SHIELD).duration;
+    return true;
   }
 
   revertToCannon() {

@@ -92,6 +92,11 @@ function startMatch() {
 // clickWhenBlocked: play the rejected-fire click when a wall is in the
 // way. Players get that feedback; AI tanks just silently don't fire.
 function tryFire(tank, clickWhenBlocked) {
+  // A held shield charge activates the instant fire is pressed, whether
+  // or not the actual weapon shot below goes through — pressing shoot is
+  // what "uses" it, per GAME_SPEC.md section 4.
+  if (tank.tryActivateShieldCharge()) AudioEngine.playShieldActivate();
+
   if (WeaponFire.needsClearBarrel(tank) && maze.isBarrelBlocked(tank)) {
     if (clickWhenBlocked) AudioEngine.playEmptyFireClick();
     return;
@@ -207,10 +212,16 @@ function updateMatch(dt) {
       if (!piece.alive || entry.tank.destroyed) return;
       const dx = piece.x - entry.tank.x;
       const dy = piece.y - entry.tank.y;
-      const hitDistance = piece.radius + entry.tank.radius;
+
+      // A shield absorbs shrapnel outright at the bubble's edge — shrapnel
+      // doesn't bounce off anything (per GAME_SPEC.md section 4), so unlike
+      // a deflected bullet it's simply consumed rather than reflected away.
+      const shielded = entry.tank.hasShield();
+      const hitDistance = piece.radius + (shielded ? entry.tank.shieldRadius : entry.tank.radius);
       if (dx * dx + dy * dy > hitDistance * hitDistance) return;
+
       piece.alive = false;
-      destroyTank(entry, piece.owner);
+      if (!shielded) destroyTank(entry, piece.owner);
     });
   });
   shrapnel = shrapnel.filter((piece) => piece.alive);

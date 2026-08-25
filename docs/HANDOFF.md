@@ -98,10 +98,24 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
     `Tank.equipWeapon()` no longer calls `revertToCannon()` for it — picking one up
     used to silently discard whatever weapon (and remaining ammo) was equipped,
     forcing the tank back to the base cannon; it's now a pure buff layered on top,
-    leaving the current weapon untouched.
+    leaving the current weapon untouched. It also no longer activates on pickup:
+    `equipWeapon()` sets `Tank.shieldCharged = true` instead of touching
+    `shieldRemaining` directly; `Tank.tryActivateShieldCharge()` pops that charge into
+    a live `shieldRemaining` the moment fire is pressed, called from the top of
+    `tryFire()` in `main.js` — unconditionally, before the barrel-blocked/`canFire()`
+    checks, so pressing shoot always reliably pops a held charge even if the
+    underlying weapon's shot doesn't actually go through. `Hud.draw()` shows
+    `🛡️(ready)` for a charged-but-inactive shield, vs. the countdown once it's live.
+    Also fixed: an active shield previously did nothing against mine shrapnel — the
+    shrapnel-vs-tank collision loop in `main.js` now checks `entry.tank.hasShield()`
+    and uses `shieldRadius` the same way the bullet and laser collision checks
+    already did, absorbing the piece (like a laser) rather than letting it through.
   - **Laser** bounce cap raised 5 -> 6 (`LaserBeam.MAX_BOUNCES`) and **shotgun**
     pellet range raised via `maxLifetime` 0.8s -> 0.96s (`Bullet.KINDS.pellet`) — both
     a flat 20% longer shot, per user request.
+  - **Mine shrapnel** (`shrapnel.js`, `Shrapnel.burst()`) now sprays in fully random
+    directions (`Math.random() * Math.PI * 2` per piece) instead of 8 evenly-spaced
+    angles with a small jitter — `Shrapnel.SPREAD_JITTER` is gone, no longer needed.
   - **Explosion** (`explosion.js`, new): a canvas-drawn flash + expanding rings,
     spawned by `destroyTank()` in `main.js` for every kill regardless of cause. When
     the match-ending kill drops survivors to ≤1, `updateMatch()` no longer switches to

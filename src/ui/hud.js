@@ -29,10 +29,15 @@ class Hud {
 
       // The shield icon needs its U+FE0F variation selector — without it,
       // U+1F6E1 falls back to a faint monochrome outline instead of the
-      // colored glyph the other HUD icons get.
+      // colored glyph the other HUD icons get. A charged-but-not-yet-fired
+      // shield shows "(ready)" instead of a countdown — see
+      // Tank.tryActivateShieldCharge, popped by the next fire press.
       const s = stats[entry.label] || { wins: 0, kills: 0, deaths: 0 };
+      let shieldStatus = '';
+      if (tank.hasShield()) shieldStatus = ` 🛡️${Math.ceil(tank.shieldRemaining)}s`;
+      else if (tank.shieldCharged) shieldStatus = ' 🛡️(ready)';
       const text = `${entry.label}: ${this._weaponStatus(tank, activeBulletCount)}` +
-        `${tank.hasShield() ? ` 🛡️${Math.ceil(tank.shieldRemaining)}s` : ''}` +
+        shieldStatus +
         `  🏆${s.wins} 🔫${s.kills} 💀${s.deaths}`;
 
       ctx.fillStyle = tank.color;

@@ -89,7 +89,7 @@ All power-up state resets every match (see section 10).
 | **Gatling Gun** | Fires continuously while held (~0.09s between rounds, so a held burst empties in ~1.4s), normal bounce physics per bullet, all 15 rounds can be in flight at once | 15 rounds |
 | **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.96s (~2.4 cells) | 3 shots |
 | **Homing Missile** | Travels straight and fast for 1 second, then slows down and curves toward the nearest OTHER tank at a capped turn rate — the missile's own shooter is never a valid target | 1 shot |
-| **Shield** | Visible bubble for 10 seconds that deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs an enemy's laser beam (the wearer's own laser still hits them; see the Laser row). Not a weapon: picking it up grants the bubble as a buff layered on top of whatever weapon (and remaining ammo) is currently equipped, rather than replacing it | — |
+| **Shield** | Not a weapon: picking it up arms a charge as a buff layered on top of whatever weapon (and remaining ammo) is currently equipped, rather than replacing it — the bubble doesn't activate on pickup. The NEXT time fire is pressed, the charge pops into a visible bubble for 10 seconds, whether or not that press's actual shot goes through. While active, it deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs mine shrapnel and an enemy's laser beam outright (the wearer's own laser still hits them; see the Laser row) | — |
 | **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner. Stepping on a hidden mine reveals it again (with a sound); stepping back OFF it lights a 0.5s fuse rather than detonating outright, then explodes into 8 shrapnel pieces sprayed outward (with a sound) — the mine itself never hurts anyone, only its shrapnel does, and shrapnel does not reflect off walls (it stops dead on contact, unlike a bullet). The trigger radius is a full 12px (matching the mine's drawn black body, not just its small red center marker). The mine's dropper gets one free departure (stepping off doesn't light the fuse the first time) — after that grace is used, stepping off again detonates it on them exactly like anyone else | 3 mines |
 | **Laser** | A fast (not instant) beam that bounces off every wall (interior AND the outer boundary) with the same mirror-angle reflection as the cannon, up to 6 bounces. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped, tracing the beam's real bounce path — both an aiming aid and a telegraph. Firing locks that path immediately, but the beam then visibly travels it at high speed rather than resolving on the spot, giving whoever's in the way a brief window to break line of sight before it actually reaches them | 1 shot |
 
@@ -99,9 +99,11 @@ this balance in any future power-up added. Which drawback each one carries:
 gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
 yourself; shotgun — useless past ~2 cells; missile — slow once it's
 actually homing, giving its target time to react; shield — purely
-defensive (no offense of its own, and a mine or your own laser still gets
-through); mine — invisible to you too, and its shrapnel doesn't care who
-dropped it once your one grace departure is spent; laser — just 1 shot,
+defensive (no offense of its own, and your own laser still gets through),
+plus it does nothing until you next press fire — pick one up mid-danger
+and you're still exposed until you actually shoot; mine — invisible to
+you too, and its shrapnel doesn't care who dropped it once your one grace
+departure is spent; laser — just 1 shot,
 telegraphed by the aim line, and its brief travel time is a real (if
 narrow) dodge window.
 
@@ -227,8 +229,9 @@ bullets at close range.
    HUD (current weapon icon + ammo count per player — see HUD notes below
    for the multi-player case). Per player the HUD shows a weapon icon, the
    weapon name, and either shots remaining (a picked-up weapon) or bullets
-   in flight (the base cannon, which never runs out), plus a 🛡️ countdown
-   while a shield is up. Weapon icons are small procedurally-drawn shapes
+   in flight (the base cannon, which never runs out), plus 🛡️(ready) while
+   a shield charge is held but not yet activated, or a 🛡️ countdown once
+   it's actually up. Weapon icons are small procedurally-drawn shapes
    (one per weapon — three barrels for gatling, a pellet fan for shotgun,
    a finned dart for missile, a badge outline for shield, a spiked ball
    for mine, a lightning bolt for laser) standing in for the real `icon_*`

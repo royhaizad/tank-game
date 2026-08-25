@@ -272,5 +272,31 @@ const AudioEngine = {
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.33);
+  },
+
+  // A held shield charge pops into an active bubble the instant fire is
+  // pressed (see Tank.tryActivateShieldCharge) — a rising shimmer of two
+  // detuned tones settling into a hum, distinct from every other weapon's
+  // punchier "fire" sound since this one is defensive, not offensive.
+  playShieldActivate() {
+    const ctx = this._getContext();
+    const now = ctx.currentTime;
+
+    [1, 1.01].forEach((detune) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300 * detune, now);
+      osc.frequency.exponentialRampToValueAtTime(520 * detune, now + 0.18);
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.31);
+    });
   }
 };

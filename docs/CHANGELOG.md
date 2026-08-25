@@ -2,6 +2,9 @@
 
 One-line entries per game mechanic/feature change, newest first. See `CLAUDE.md`
 "Keeping Docs in Sync" for when to add to this file.
+- 2026-08-30 — Shield no longer activates the instant it's picked up: it now arms a charge (HUD shows 🛡️(ready)) that only pops into the actual 10s bubble the next time fire is pressed, whether or not that press's shot goes through (Tank.tryActivateShieldCharge, called from tryFire). Added a distinct activation sound (playShieldActivate).
+- 2026-08-30 — Fixed a bug where an active shield failed to protect against mine shrapnel. Shrapnel is now absorbed at the shield bubble's edge (like an enemy's laser) rather than passing straight through to hit the wearer.
+- 2026-08-30 — Mine shrapnel now sprays in fully random directions instead of 8 evenly-spaced angles with a small jitter.
 - 2026-08-29 — Fixed a bug where picking up a Shield crate discarded whatever weapon (and its remaining ammo) was currently equipped, forcing the tank back to the base cannon. Shield is now a pure buff layered on top of the current weapon — Tank.equipWeapon no longer calls revertToCannon() for it.
 - 2026-08-29 — Laser and shotgun range increased 20%: laser's bounce cap 5 -> 6 (LaserBeam.MAX_BOUNCES), shotgun pellet lifetime 0.8s -> 0.96s (~160px -> ~192px, Bullet.KINDS.pellet.maxLifetime).
 - 2026-08-29 — Mine detonation is no longer instant on trigger: stepping off an armed, revealed mine now lights a 0.5s fuse (Mine.FUSE_DELAY) before it actually explodes, rather than detonating the same frame. The mine stays visible and fully committed once the fuse is lit — nothing can stop it or reset it at that point.
