@@ -295,6 +295,30 @@ class Maze {
     return closestWall;
   }
 
+  // Moves `mover` by (dx, dy) in the same substep style as moveWithBounce,
+  // but stops dead at the first wall instead of reflecting — used by mine
+  // shrapnel (shrapnel.js), which explicitly does not bounce off walls,
+  // per GAME_SPEC.md section 4.
+  moveStraight(mover, dx, dy) {
+    const steps = 8;
+    const stepDx = dx / steps;
+    const stepDy = dy / steps;
+    let x = mover.x;
+    let y = mover.y;
+
+    for (let i = 0; i < steps; i++) {
+      const nextX = x + stepDx;
+      const nextY = y + stepDy;
+      if (this._findWallHit(nextX, nextY, mover.radius)) {
+        return { x, y, blocked: true };
+      }
+      x = nextX;
+      y = nextY;
+    }
+
+    return { x, y, blocked: false };
+  }
+
   worldToCell(x, y) {
     return {
       row: Math.min(this.rows - 1, Math.max(0, Math.floor(y / this.cellSize))),

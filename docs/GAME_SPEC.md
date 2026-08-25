@@ -51,7 +51,10 @@ the field — cannot pass through any of them.
   Holding the fire key down auto-fires a new bullet every 0.5s for as
   long as it's held (and the 5-bullet cap allows it) — releasing and
   re-tapping always fires instantly again, the 0.5s pacing only applies
-  between repeat shots while held. Firing is also capped by the 5-bullet
+  between repeat shots while held. That 0.5s is the *base cannon's*
+  hold-to-repeat rate; an equipped power-up sets its own (0.09s for the
+  gatling, and no auto-fire at all for the one-shot weapons, which need a
+  fresh keypress each time) — see section 4. Firing is also capped by the 5-bullet
   cap regardless of tap or hold. AI opponents use a stricter limit
   instead — see section 5.
 - Bullet speed is 160 px/s — noticeably faster than a tank's own top
@@ -72,22 +75,47 @@ bullets.
 
 ## 4. Power-Ups
 
-Crates spawn on random empty floor tiles every 8–15 seconds (max 1–2
-active on the map at once). Driving over a crate swaps the current weapon;
-it reverts to the base cannon once ammo runs out.
+Crates spawn on random empty floor tiles every 3–7 seconds. The live-crate
+cap is rolled once per match between 1 and 4, so some matches stay scarce
+and weapon-hungry while others are a scramble. A crate never spawns on a
+cell a tank is already standing on (that would read as a free pickup
+rather than something to drive for). Driving over a crate swaps the
+current weapon; it reverts to the base cannon once ammo runs out — the
+base cannon has infinite ammo, so a tank is never left unable to shoot.
+All power-up state resets every match (see section 10).
 
-| Power-Up | Effect |
-|---|---|
-| **Gatling Gun** | Fires continuously while held, high rate, ~15 rounds total, normal bounce physics per bullet |
-| **Shotgun** | 5-shot spread in a narrow cone, shorter range, 3 total shots |
-| **Homing Missile** | Travels straight 2 seconds, then curves toward nearest tank (can target its own shooter), 1 shot |
-| **Shield** | Deflects/absorbs incoming bullets for 6 seconds, visible bubble sprite; own reflected shot can still kill the shielded tank |
-| **Mine** | Drops a trap, invisible after 1 second, explodes when the OTHER tank drives over it, 3 mines total |
-| **Laser** | Instant-hit straight beam, dotted aim-preview line before firing, passes through 1 thin wall, stops at thick outer walls, 1 shot |
+| Power-Up | Effect | Ammo |
+|---|---|---|
+| **Gatling Gun** | Fires continuously while held (~0.09s between rounds, so a held burst empties in ~1.4s), normal bounce physics per bullet, all 15 rounds can be in flight at once | 15 rounds |
+| **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.96s (~2.4 cells) | 3 shots |
+| **Homing Missile** | Travels straight and fast for 1 second, then slows down and curves toward the nearest OTHER tank at a capped turn rate — the missile's own shooter is never a valid target | 1 shot |
+| **Shield** | Not a weapon: picking it up arms a charge as a buff layered on top of whatever weapon (and remaining ammo) is currently equipped, rather than replacing it — the bubble doesn't activate on pickup. The NEXT time fire is pressed, the charge pops into a visible bubble for 10 seconds, whether or not that press's actual shot goes through. While active, it deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs mine shrapnel and an enemy's laser beam outright (the wearer's own laser still hits them; see the Laser row) | — |
+| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner. Stepping on a hidden mine reveals it again (with a sound); stepping back OFF it lights a 0.5s fuse rather than detonating outright, then explodes into 8 shrapnel pieces sprayed outward (with a sound) — the mine itself never hurts anyone, only its shrapnel does, and shrapnel does not reflect off walls (it stops dead on contact, unlike a bullet). The trigger radius is a full 12px (matching the mine's drawn black body, not just its small red center marker). The mine's dropper gets one free departure (stepping off doesn't light the fuse the first time) — after that grace is used, stepping off again detonates it on them exactly like anyone else | 3 mines |
+| **Laser** | A fast (not instant) beam that bounces off every wall (interior AND the outer boundary) with the same mirror-angle reflection as the cannon, up to 6 bounces. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped, tracing the beam's real bounce path — both an aiming aid and a telegraph. Firing locks that path immediately, but the beam then visibly travels it at high speed rather than resolving on the spot, giving whoever's in the way a brief window to break line of sight before it actually reaches them | 1 shot |
 
 **Design rule:** every power-up trades extra power for a real risk
 (self-damage potential, limited range, low ammo, or setup delay). Preserve
-this balance in any future power-up added.
+this balance in any future power-up added. Which drawback each one carries:
+gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
+yourself; shotgun — useless past ~2 cells; missile — slow once it's
+actually homing, giving its target time to react; shield — purely
+defensive (no offense of its own, and your own laser still gets through),
+plus it does nothing until you next press fire — pick one up mid-danger
+and you're still exposed until you actually shoot; mine — invisible to
+you too, and its shrapnel doesn't care who dropped it once your one grace
+departure is spent; laser — just 1 shot,
+telegraphed by the aim line, and its brief travel time is a real (if
+narrow) dodge window.
+
+**Ammo/rate overrides:** a picked-up weapon may override the tank's own
+firing limits (in-flight bullet cap, cooldown, and the hold-to-repeat
+interval) for as long as it's equipped; on revert the tank returns to its
+own base limits, which differ for players and AI (sections 3.2 and 5).
+
+**AI and crates:** Easy AI does not seek crates out — it picks up whatever
+it happens to drive over and then uses that weapon through the same firing
+path players use. Actively contesting pickups is a Medium/Hard trait (see
+section 5) and isn't built yet.
 
 ---
 
@@ -360,7 +388,16 @@ way.
 3. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
    players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
    HUD (current weapon icon + ammo count per player — see HUD notes below
-   for the multi-player case).
+   for the multi-player case). Per player the HUD shows a weapon icon, the
+   weapon name, and either shots remaining (a picked-up weapon) or bullets
+   in flight (the base cannon, which never runs out), plus 🛡️(ready) while
+   a shield charge is held but not yet activated, or a 🛡️ countdown once
+   it's actually up. Weapon icons are small procedurally-drawn shapes
+   (one per weapon — three barrels for gatling, a pellet fan for shotgun,
+   a finned dart for missile, a badge outline for shield, a spiked ball
+   for mine, a lightning bolt for laser) standing in for the real `icon_*`
+   sprites until those land; the same icon draws in the HUD and on a
+   map crate, which also shows the weapon's name as a readable label.
 4. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
    player, red if the winner is an AI tank; "Draw" in the rare simultaneous-
    kill case — see section 9), buttons:
@@ -422,8 +459,19 @@ starts.
 ## 8. Audio
 
 Light chiptune background loop during matches. SFX: cannon fire, wall
-bounce ping, explosion, power-up pickup chime, victory/defeat jingles.
-Mute toggle in pause menu.
+bounce ping, explosion, victory/defeat jingles — still unbuilt. Mute
+toggle in pause menu — still unbuilt.
+
+**Power-up SFX (built):** three distinct synthesized cues per
+GAME_SPEC.md section 4's crate lifecycle — a soft ambient chime when a
+crate **appears**, a brighter chime when a tank **equips** one (drives
+over it), and a weapon-specific sound the instant a tank **uses** one
+(fires it): a short tick for the gatling, a noise-burst blast for the
+shotgun, a rising whoosh for the missile launch, a low thunk for the mine
+drop, and a rising sweep timed to the laser's charge for the laser. The
+base cannon has no "use" sound — it isn't a power-up. The shield has no
+"use" sound either — equipping it is its only action, already covered by
+the equip chime.
 
 ---
 
@@ -431,13 +479,16 @@ Mute toggle in pause menu.
 
 Free-for-all, always — there is no team distinction between players and AI
 (see section 5's Targeting note); a bullet destroys whatever tank it
-touches regardless of who fired it. A destroyed tank is removed from play
-but the match continues; it ends when exactly one tank remains, and that
-tank's controller (a specific player, or a specific AI) wins. (Edge case:
-if the last two-or-more tanks are destroyed in the same instant — e.g. a
-mutual point-blank kill — treat it as a draw; no player/AI is declared the
-winner.) Result Screen shows within 1 second of the last death animation
-finishing.
+touches regardless of who fired it. A destroyed tank plays a brief
+explosion animation where it died and is removed from play, but the match
+continues; it ends when exactly one tank remains, and that tank's
+controller (a specific player, or a specific AI) wins. (Edge case: if the
+last two-or-more tanks are destroyed in the same instant — e.g. a mutual
+point-blank kill — treat it as a draw; no player/AI is declared the
+winner.) Once the match-ending kill happens, the battlefield freezes
+exactly as it stood at that moment (only the explosion keeps animating)
+for 2 seconds before the Result Screen appears, so the final death reads
+clearly instead of cutting away instantly.
 
 ### 9.1 Session Stats (Win/Kill/Death tallies)
 
