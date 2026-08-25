@@ -104,8 +104,10 @@ Weapons.defs = {
     duration: 6
   },
 
-  // Drawback: invisible after 1s to EVERYONE including whoever dropped it,
-  // and armed mines kill on contact regardless of owner.
+  // Drawback: invisible after 1s to EVERYONE including whoever dropped
+  // it. Stepping on a hidden mine reveals it (see mine.js); stepping back
+  // off it detonates it into shrapnel (shrapnel.js) that hits regardless
+  // of owner, once the dropper's one-time grace departure is used up.
   mine: {
     name: 'Mine',
     color: '#8a7f6d',
@@ -116,9 +118,10 @@ Weapons.defs = {
     needsClearBarrel: false // dropped under the tank, not out of the barrel
   },
 
-  // Drawback: a setup delay you cannot cancel — the aim line is drawn for
-  // every player to see while the laser is equipped, and firing locks the
-  // angle then charges for LaserBeam.CHARGE_TIME before the beam lands.
+  // Fires instantly, bouncing off walls exactly like the cannon (see
+  // laser.js) — the dotted aim line traces that real bounce path while
+  // equipped, doubling as both an aiming aid and a telegraph: every
+  // player can see it, not just the shooter. Drawback: just 1 shot.
   laser: {
     name: 'Laser',
     color: '#7be0a4',
@@ -253,7 +256,9 @@ const WeaponFire = {
     return Weapons.def(tank.weapon).needsClearBarrel !== false;
   },
 
-  fire(tank, maze, bullets, mines, beams) {
+  // matchTanks is only used by the laser, which resolves its hit(s)
+  // instantly at fire time rather than lazily during a later update().
+  fire(tank, maze, bullets, mines, beams, matchTanks) {
     const def = Weapons.def(tank.weapon);
     const tip = tank.getBarrelTip();
 
@@ -273,7 +278,7 @@ const WeaponFire = {
         break;
 
       case Weapons.LASER:
-        beams.push(new LaserBeam(tank, maze));
+        beams.push(new LaserBeam(tank, maze, matchTanks));
         break;
 
       default:

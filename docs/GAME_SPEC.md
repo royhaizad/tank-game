@@ -90,8 +90,8 @@ All power-up state resets every match (see section 10).
 | **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.8s (~2 cells) | 3 shots |
 | **Homing Missile** | Travels straight 1 second, then curves toward the nearest tank at a capped turn rate — nearest explicitly includes its own shooter, so an overshoot can come back for you | 1 shot |
 | **Shield** | Visible bubble for 6 seconds that deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs an enemy's laser beam (the wearer's own laser still hits them; see the Laser row). Not a weapon: picking it up grants the bubble and leaves the tank on its base cannon | — |
-| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner, kills ANY tank that touches it. Won't kill its own dropper until that tank has driven clear of it once — otherwise dropping one while stationary is just suicide — but will kill them if they drive back over it | 3 mines |
-| **Laser** | Instant-hit straight beam. Passes through exactly 1 thin interior wall, stopped dead by the thick outer boundary. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped; firing locks the origin and angle, then charges 0.5s before the beam lands, so turning to track a target after committing does nothing | 1 shot |
+| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner. Stepping on a hidden mine reveals it again (with a sound); stepping back OFF it detonates it into 8 shrapnel pieces sprayed outward (with a sound) — the mine itself never hurts anyone, only its shrapnel does, and shrapnel does not reflect off walls (it stops dead on contact, unlike a bullet). The mine's dropper gets one free departure (stepping off doesn't detonate it the first time) — after that grace is used, stepping off again detonates it on them exactly like anyone else | 3 mines |
+| **Laser** | Instant-hit beam that bounces off every wall (interior AND the outer boundary) with the same mirror-angle reflection as the cannon, up to 5 bounces. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped, tracing the beam's real bounce path — both an aiming aid and a telegraph. Firing resolves instantly, no charge delay | 1 shot |
 
 **Design rule:** every power-up trades extra power for a real risk
 (self-damage potential, limited range, low ammo, or setup delay). Preserve
@@ -100,8 +100,9 @@ gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
 yourself; shotgun — useless past ~2 cells; missile — homes on the nearest
 tank, shooter included; shield — only 6s, and purely defensive (no
 offense of its own, and a mine or your own laser still gets through);
-mine — invisible to you too, and lethal to you on the way back; laser —
-a telegraphed aim line plus a locked-in 0.5s wind-up.
+mine — invisible to you too, and its shrapnel doesn't care who dropped it
+once your one grace departure is spent; laser — just 1 shot, and the aim
+line telegraphs it to every other player.
 
 **Ammo/rate overrides:** a picked-up weapon may override the tank's own
 firing limits (in-flight bullet cap, cooldown, and the hold-to-repeat

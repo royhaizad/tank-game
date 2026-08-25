@@ -190,28 +190,87 @@ const AudioEngine = {
     osc.stop(now + 0.11);
   },
 
-  // Laser: a rising sine sweep timed to LaserBeam.CHARGE_TIME, so the pitch
-  // climbs alongside the visible charge-up and resolves right as the beam
-  // actually lands — reinforcing the "committed, can't cancel" drawback.
+  // Laser: an instant, bright zap — no more charge-up now that the shot
+  // resolves the moment fire is pressed.
   playLaserFire() {
     const ctx = this._getContext();
     const now = ctx.currentTime;
-    const chargeTime = (typeof LaserBeam !== 'undefined' && LaserBeam.CHARGE_TIME) || 0.5;
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(220, now);
-    osc.frequency.exponentialRampToValueAtTime(1800, now + chargeTime);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1800, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.15);
 
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.15, now + 0.05);
-    gain.gain.setValueAtTime(0.15, now + Math.max(0.05, chargeTime - 0.05));
-    gain.gain.exponentialRampToValueAtTime(0.001, now + chargeTime + 0.05);
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
 
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(now);
-    osc.stop(now + chargeTime + 0.06);
+    osc.stop(now + 0.17);
+  },
+
+  // A tank steps onto a still-hidden mine and reveals it — a sharp
+  // two-note "uncovered" cue, distinct from playMineDrop's low thunk.
+  playMineReveal() {
+    const ctx = this._getContext();
+    const now = ctx.currentTime;
+
+    [[700, 0], [500, 0.06]].forEach(([freq, offset]) => {
+      const start = now + offset;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.22, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.09);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.1);
+    });
+  },
+
+  // A revealed mine detonates into shrapnel — a bigger noise burst than
+  // the shotgun's, plus a heavier low thump, for a real blast.
+  playMineExplode() {
+    const ctx = this._getContext();
+    const now = ctx.currentTime;
+    const duration = 0.35;
+
+    const bufferSize = Math.ceil(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize); // linear fade-out
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1400, now);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.35, now);
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noise.start(now);
+    noise.stop(now + duration);
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.3);
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.33);
   }
 };

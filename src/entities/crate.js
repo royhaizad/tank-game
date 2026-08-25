@@ -48,8 +48,13 @@ class Crate {
     ctx.save();
     ctx.font = 'bold 9px sans-serif';
     ctx.textAlign = 'center';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    // A too-thick stroke at this font size overlaps itself on tight
+    // glyphs (e.g. "M"'s narrow diagonals), reading as a muddy blob
+    // instead of a clean outline. round joins avoid the mitered spikes
+    // that make it worse at glyph corners.
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
     ctx.strokeText(def.name, this.x, this.y - this.radius - 4);
     ctx.fillStyle = '#fff';
     ctx.fillText(def.name, this.x, this.y - this.radius - 4);

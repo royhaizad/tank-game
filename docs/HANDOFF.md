@@ -50,15 +50,32 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stat type (green/red/white) — plus a Reset Stats button. Self-kills count as a
   death but not a kill.
 
-- **Power-ups** (`src/entities/weapon.js`, `crate.js`, `mine.js`, `laser.js`): crates
-  spawn every 3–7s on random empty cells (live cap rolled 1–4 per match); driving over
-  one swaps your weapon until its ammo runs out, then reverts to the base cannon. All
-  six weapons are in — Gatling, Shotgun, Homing Missile, Shield, Mine, Laser (see
-  GAME_SPEC.md section 4 for each one's numbers and its drawback). `Weapons.defs` in
-  `weapon.js` is the single tuning table; a weapon there can override the tank's
-  in-flight bullet cap, cooldown, and hold-to-repeat interval while it's equipped.
-  Every lethal thing in a match (bullets, mines, laser beams) books its kill through
-  one `destroyTank()` in `src/main.js`, so stats work the same regardless of cause.
+- **Power-ups** (`src/entities/weapon.js`, `crate.js`, `mine.js`, `shrapnel.js`,
+  `laser.js`): crates spawn every 3–7s on random empty cells (live cap rolled 1–4 per
+  match); driving over one swaps your weapon until its ammo runs out, then reverts to
+  the base cannon. All six weapons are in — Gatling, Shotgun, Homing Missile, Shield,
+  Mine, Laser (see GAME_SPEC.md section 4 for each one's numbers and its drawback).
+  `Weapons.defs` in `weapon.js` is the single tuning table; a weapon there can
+  override the tank's in-flight bullet cap, cooldown, and hold-to-repeat interval
+  while it's equipped. Every lethal thing in a match (bullets, mine shrapnel, laser
+  beams) books its kill through one `destroyTank()` in `src/main.js`, so stats work
+  the same regardless of cause.
+  - **Laser** (`laser.js`) bounces off every wall — interior and the outer boundary —
+    with the exact same mirror-angle reflection as the cannon, up to
+    `LaserBeam.MAX_BOUNCES` (5), by reusing `Maze.moveWithBounce` directly rather than
+    reimplementing the math. Fires instantly at construction time (no charge delay);
+    `LaserBeam.traceBounce()` is the shared raycast used by both the fired shot and
+    the dotted aim-preview (which is walls-only, so it never reveals tank positions
+    the shooter couldn't already see). `WeaponFire.fire()` now needs `matchTanks`
+    passed through for this reason — threaded via `tryFire()` in `main.js`.
+  - **Mine** (`mine.js` + `shrapnel.js`) no longer kills on contact. A hidden, armed
+    mine reveals itself (and plays a sound) the instant a tank steps on it; stepping
+    back off it detonates it into `Shrapnel.COUNT` (8) pieces sprayed outward (and
+    plays a sound) via `Shrapnel.burst()`. Shrapnel travels in a straight line via the
+    new `Maze.moveStraight()` — same substep style as `moveWithBounce`, but stops dead
+    at a wall instead of reflecting. The dropper's mine still grants one free
+    departure (`Mine.ownerHasLeft`) before it turns lethal on them too, same grace
+    rule as the old direct-contact version, just applied to the new step-off trigger.
 
 ## Planned next
 

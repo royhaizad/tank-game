@@ -1,121 +1,115 @@
 // Instant-hit laser beam, per GAME_SPEC.md section 4.
 //
-// Wall rules: the beam passes through exactly ONE thin interior wall, and
-// is stopped dead by the thick outer boundary (maze.js tags boundary wall
-// rects with isBoundary for exactly this).
+// Purpose: an aiming aid and a long-range instant shot, not a delayed
+// trap. The dotted aim line traces the beam's REAL path — including every
+// bounce — so what you see is exactly what fires. Pressing fire resolves
+// instantly, no charge-up.
 //
-// Drawback: a setup delay that is also a telegraph. While the laser is
-// equipped, LaserBeam.drawPreview draws a dotted aim line every frame that
-// every other player can see. Pressing fire locks the origin and angle
-// immediately, then charges for CHARGE_TIME before the beam actually
-// lands — so turning to track a moving target after committing does
-// nothing, and the target gets half a second of warning to break the line.
+// Wall rule: bounces off every wall (interior AND the outer boundary)
+// with the same mirror-angle reflection as the cannon, up to
+// LaserBeam.MAX_BOUNCES — it reuses Maze.moveWithBounce directly (the
+// same function Bullet uses) so the physics are identical, not just
+// similar. That, plus the long safety-limited travel distance, is what
+// makes both the preview line and the fired shot far longer-reaching than
+// the old pierce-one-wall version.
+//
+// Drawback: still telegraphed (the aim line is visible to every player,
+// not just the shooter) and still only 1 shot — with the charge delay
+// gone, ammo and visibility are the laser's only remaining risk.
 class LaserBeam {
-  static CHARGE_TIME = 0.5; // s of visible wind-up before the beam lands
+  static MAX_BOUNCES = 5; // matches Bullet.KINDS.cannon.maxBounces
   static FLASH_TIME = 0.18; // s the fired beam stays drawn
-  static MAX_RANGE = 2000; // px, effectively "until it hits something"
-  static STEP = 2; // px per raycast step
+  static MAX_TRAVEL = 6000; // px, a generous safety ceiling — not a designed limit
+  static STEP = 4; // px per raycast substep
   static HIT_RADIUS = 2; // px of beam half-width, added to a tank's radius
 
-  constructor(tank, maze) {
+  // matchTanks is required now — the shot resolves instantly at
+  // construction time rather than lazily after a charge delay.
+  constructor(tank, maze, matchTanks) {
     this.owner = tank;
-    this.maze = maze;
 
     const tip = tank.getBarrelTip();
-    this.x = tip.x;
-    this.y = tip.y;
-    this.angle = tank.angle; // locked at fire time, never re-aimed
-
-    this.chargeRemaining = LaserBeam.CHARGE_TIME;
+    const result = LaserBeam.traceBounce(maze, tip.x, tip.y, tank.angle, matchTanks, tank);
+    this.points = result.points; // polyline vertices: origin, every bounce, then the end
     this.flashRemaining = LaserBeam.FLASH_TIME;
-    this.fired = false;
-    this.end = LaserBeam.trace(maze, this.x, this.y, this.angle).end;
 
     // Tanks the beam caught, drained by main.js so laser kills go through
     // the same stats path as bullet kills.
-    this.pendingHits = [];
+    this.pendingHits = result.hits;
   }
 
   get alive() {
-    return !this.fired || this.flashRemaining > 0;
+    return this.flashRemaining > 0;
   }
 
-  update(dt, matchTanks) {
-    if (!this.fired) {
-      this.chargeRemaining -= dt;
-      // The preview keeps updating during the wind-up only because walls
-      // never move; the angle itself stays locked to the firing moment.
-      if (this.chargeRemaining <= 0) {
-        this.fired = true;
-        const result = LaserBeam.trace(this.maze, this.x, this.y, this.angle, matchTanks, this.owner);
-        this.end = result.end;
-        this.pendingHits = result.hits;
-      }
-      return;
-    }
+  update(dt) {
     this.flashRemaining -= dt;
   }
 
-  // Marches the beam forward. `matchTanks` is optional — the aim preview
-  // traces walls only, so it never reveals anything about tank positions
-  // the shooter can't already see.
-  static trace(maze, startX, startY, angle, matchTanks, owner) {
-    const dx = Math.cos(angle) * LaserBeam.STEP;
-    const dy = Math.sin(angle) * LaserBeam.STEP;
-    let x = startX;
-    let y = startY;
-
-    let pierced = 0;
-    let insideWall = null; // the wall rect currently being passed through
+  // Marches a beam forward, bouncing off walls exactly like a bullet (via
+  // Maze.moveWithBounce, reused directly rather than reimplemented) for up
+  // to MAX_BOUNCES reflections, a tank hit, or the MAX_TRAVEL safety
+  // ceiling — whichever comes first. Returns { points, hits }: points is
+  // every vertex of the resulting polyline (origin, each bounce, the
+  // end), hits is which tanks it caught.
+  //
+  // `matchTanks` is optional — the aim preview traces walls only, so it
+  // never reveals anything about tank positions the shooter can't already
+  // see.
+  static traceBounce(maze, startX, startY, startAngle, matchTanks, owner) {
+    const mover = { x: startX, y: startY, angle: startAngle, radius: LaserBeam.HIT_RADIUS };
+    const points = [{ x: mover.x, y: mover.y }];
     const hits = [];
+    let bounces = 0;
+    let travelled = 0;
 
-    for (let travelled = 0; travelled < LaserBeam.MAX_RANGE; travelled += LaserBeam.STEP) {
-      x += dx;
-      y += dy;
-
-      if (x < 0 || y < 0 || x > maze.width || y > maze.height) break;
-
-      const wall = maze.wallAt(x, y);
-      if (wall) {
-        // Only count a pierce when ENTERING a new wall — a 6px wall spans
-        // several steps, and two perpendicular walls can touch at a corner.
-        if (wall !== insideWall) {
-          if (wall.isBoundary) break; // thick outer wall: hard stop
-          pierced++;
-          if (pierced > 1) break; // only one thin wall gets pierced
-          insideWall = wall;
-        }
-      } else {
-        insideWall = null;
-      }
+    while (travelled < LaserBeam.MAX_TRAVEL) {
+      const dx = Math.cos(mover.angle) * LaserBeam.STEP;
+      const dy = Math.sin(mover.angle) * LaserBeam.STEP;
+      const result = maze.moveWithBounce(mover, dx, dy);
+      mover.x = result.x;
+      mover.y = result.y;
+      travelled += LaserBeam.STEP;
 
       if (matchTanks) {
+        let caughtSomeone = false;
         for (const entry of matchTanks) {
           if (entry.tank.destroyed || hits.includes(entry)) continue;
-          const tdx = x - entry.tank.x;
-          const tdy = y - entry.tank.y;
+          const tdx = mover.x - entry.tank.x;
+          const tdy = mover.y - entry.tank.y;
           const reach = entry.tank.radius + LaserBeam.HIT_RADIUS;
           if (tdx * tdx + tdy * tdy > reach * reach) continue;
 
           // A shield bubble absorbs the beam outright (it deflects
           // incoming fire, section 4) — but, exactly like bullets, it
           // never protects against its own owner's shot.
-          if (entry.tank.hasShield() && entry.tank !== owner) {
-            return { end: { x, y }, hits };
-          }
-          hits.push(entry);
+          if (!(entry.tank.hasShield() && entry.tank !== owner)) hits.push(entry);
+          caughtSomeone = true;
+          break;
         }
+        if (caughtSomeone) {
+          points.push({ x: mover.x, y: mover.y });
+          return { points, hits };
+        }
+      }
+
+      if (result.bounced) {
+        points.push({ x: mover.x, y: mover.y });
+        bounces++;
+        if (bounces >= LaserBeam.MAX_BOUNCES) return { points, hits };
       }
     }
 
-    return { end: { x, y }, hits };
+    points.push({ x: mover.x, y: mover.y }); // hit the travel safety ceiling
+    return { points, hits };
   }
 
   // Dotted aim line shown while a laser is equipped but not yet fired —
-  // the telegraph half of the laser's drawback.
+  // traces the exact bounce path so aiming it is a matter of reading the
+  // line, not guessing.
   static drawPreview(ctx, tank, maze) {
     const tip = tank.getBarrelTip();
-    const { end } = LaserBeam.trace(maze, tip.x, tip.y, tank.angle);
+    const { points } = LaserBeam.traceBounce(maze, tip.x, tip.y, tank.angle);
 
     ctx.save();
     ctx.strokeStyle = Weapons.defs.laser.color;
@@ -123,8 +117,8 @@ class LaserBeam {
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 5]);
     ctx.beginPath();
-    ctx.moveTo(tip.x, tip.y);
-    ctx.lineTo(end.x, end.y);
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
     ctx.stroke();
     ctx.restore();
   }
@@ -132,24 +126,14 @@ class LaserBeam {
   draw(ctx) {
     ctx.save();
     ctx.strokeStyle = Weapons.defs.laser.color;
+    ctx.globalAlpha = Math.max(0, this.flashRemaining / LaserBeam.FLASH_TIME);
+    ctx.lineWidth = 4;
+    ctx.shadowColor = Weapons.defs.laser.color;
+    ctx.shadowBlur = 8;
+
     ctx.beginPath();
-    ctx.moveTo(this.x, this.y);
-    ctx.lineTo(this.end.x, this.end.y);
-
-    if (!this.fired) {
-      // Winding up: a brighter, thickening dotted line so everyone can see
-      // a laser is about to land, and roughly where.
-      const charged = 1 - this.chargeRemaining / LaserBeam.CHARGE_TIME;
-      ctx.globalAlpha = 0.5 + charged * 0.4;
-      ctx.lineWidth = 1 + charged * 2;
-      ctx.setLineDash([3, 4]);
-    } else {
-      ctx.globalAlpha = Math.max(0, this.flashRemaining / LaserBeam.FLASH_TIME);
-      ctx.lineWidth = 4;
-      ctx.shadowColor = Weapons.defs.laser.color;
-      ctx.shadowBlur = 8;
-    }
-
+    ctx.moveTo(this.points[0].x, this.points[0].y);
+    for (let i = 1; i < this.points.length; i++) ctx.lineTo(this.points[i].x, this.points[i].y);
     ctx.stroke();
     ctx.restore();
   }

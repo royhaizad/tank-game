@@ -1,17 +1,20 @@
 // Land mines, per GAME_SPEC.md section 4. Dropped under the tank (not out
-// of the barrel), visible for 1 second, then invisible to everyone —
-// including whoever dropped it. An armed mine kills ANY tank that touches
-// it, its owner included; that self-risk is the mine's drawback.
+// of the barrel). Lifecycle: visible for 1s right after being dropped,
+// then invisible to everyone — including whoever dropped it — until a
+// tank steps on it. Stepping onto a hidden mine reveals it again (with a
+// sound); stepping back OFF it detonates it into a spray of shrapnel
+// (see shrapnel.js) rather than killing on contact directly. The mine
+// itself never hurts anyone — only its shrapnel does.
 //
-// The one concession: a mine won't kill the tank that dropped it until
-// that tank has driven clear of it once (see ownerHasLeft). Without that,
-// dropping a mine while standing still is just suicide 0.35s later, which
-// makes the weapon unusable rather than risky. Drive back over your own
-// mine afterwards — and you will, because it's invisible by then — and it
-// kills you exactly like anyone else's.
+// The one concession: a mine won't detonate on the tank that dropped it
+// the FIRST time they step off it (see ownerHasLeft) — otherwise dropping
+// one while stationary would explode in the dropper's face 0.35s later,
+// making the weapon unusable rather than risky. Step onto your own mine
+// again later (you will, since it's invisible again by then) and leave it
+// a second time, and it detonates on you exactly like anyone else's.
 class Mine {
-  static ARM_DELAY = 0.35; // s, before the mine is live at all
-  static VISIBLE_FOR = 1; // s, per GAME_SPEC.md section 4
+  static ARM_DELAY = 0.35; // s before the mine can be triggered at all
+  static VISIBLE_FOR = 1; // s the mine stays visible right after being dropped
   static TRIGGER_RADIUS = 6; // px, mine's own body radius (plus the tank's)
 
   constructor(x, y, owner) {
@@ -20,22 +23,20 @@ class Mine {
     this.owner = owner;
     this.age = 0;
     this.alive = true;
-    this.ownerHasLeft = false; // flips once the dropper drives clear
-  }
+    this.ownerHasLeft = false; // one-time grace: the owner's first departure is safe
 
-  update(dt) {
-    this.age += dt;
-    if (!this.ownerHasLeft && this.owner && !this.triggeredBy(this.owner)) {
-      this.ownerHasLeft = true;
-    }
+    this.revealed = false; // stepped-on visible state, separate from the placement window
+    this.occupants = new Set(); // tanks currently touching, refreshed every frame
   }
 
   isArmed() {
     return this.age >= Mine.ARM_DELAY;
   }
 
+  // Visible either during its brief placement window, or once a tank has
+  // stepped on it and revealed it.
   isVisible() {
-    return this.age < Mine.VISIBLE_FOR;
+    return this.age < Mine.VISIBLE_FOR || this.revealed;
   }
 
   triggeredBy(tank) {
@@ -45,18 +46,57 @@ class Mine {
     return dx * dx + dy * dy <= reach * reach;
   }
 
-  killsOnContact(tank) {
-    if (!this.triggeredBy(tank)) return false;
-    if (tank === this.owner && !this.ownerHasLeft) return false;
-    return true;
+  // Advances the reveal/detonate state machine. Returns { revealed,
+  // exploded } so MineField can turn those into sounds and a shrapnel
+  // burst — this class only tracks state, it doesn't know about audio or
+  // Shrapnel.
+  update(dt, matchTanks) {
+    this.age += dt;
+    if (!this.isArmed()) return { revealed: false, exploded: false };
+
+    const current = new Set(
+      matchTanks
+        .filter((entry) => !entry.tank.destroyed && this.triggeredBy(entry.tank))
+        .map((entry) => entry.tank)
+    );
+
+    let revealedNow = false;
+    if (!this.revealed && current.size > 0) {
+      this.revealed = true;
+      revealedNow = true;
+    }
+
+    let exploded = false;
+    if (this.revealed) {
+      const departed = [...this.occupants].filter((tank) => !current.has(tank));
+      for (const tank of departed) {
+        if (tank === this.owner && !this.ownerHasLeft) {
+          this.ownerHasLeft = true; // one-time grace, used up
+        } else {
+          exploded = true;
+        }
+      }
+
+      if (exploded) {
+        this.alive = false;
+      } else if (departed.length > 0 && current.size === 0) {
+        // Everyone who was here left harmlessly (via the owner's grace)
+        // and nobody new has stepped on yet — go back to waiting.
+        this.revealed = false;
+      }
+    }
+
+    this.occupants = current;
+    return { revealed: revealedNow, exploded };
   }
 
   draw(ctx) {
     if (!this.isVisible()) return;
 
-    // Fades out over its last half-second rather than popping away, so a
-    // player can see roughly where it went without being told forever.
-    const fade = Math.max(0, 1 - this.age / Mine.VISIBLE_FOR);
+    // Fades out over the placement window only — once revealed by a tank
+    // stepping on it, it stays fully visible until it detonates.
+    const fadingOut = this.age < Mine.VISIBLE_FOR && !this.revealed;
+    const fade = fadingOut ? Math.max(0, 1 - this.age / Mine.VISIBLE_FOR) : 1;
     ctx.save();
     ctx.globalAlpha = fade;
     ctx.fillStyle = '#2b2b2b';
@@ -72,7 +112,7 @@ class Mine {
 }
 
 // Owns every live mine for a match so main.js ticks one object rather
-// than hand-rolling another collision pass in the match loop.
+// than hand-rolling another state pass in the match loop.
 class MineField {
   constructor() {
     this.mines = [];
@@ -82,27 +122,26 @@ class MineField {
     this.mines.push(mine);
   }
 
-  // Returns [{ victim: matchEntry, owner: Tank }] for every tank an armed
-  // mine caught this frame. The caller applies the kill so mine deaths go
-  // through the same stats path as bullet deaths.
+  // Ticks every mine's reveal/detonate state machine. Returns
+  // { revealed, exploded, shrapnel } — mines no longer kill directly on
+  // contact; only the shrapnel from a detonation does (see shrapnel.js),
+  // resolved by main.js the same way bullet collisions are.
   update(dt, matchTanks) {
-    const hits = [];
+    let revealed = false;
+    let exploded = false;
+    const shrapnel = [];
 
     this.mines.forEach((mine) => {
-      mine.update(dt);
-      if (!mine.alive || !mine.isArmed()) return;
-
-      for (const entry of matchTanks) {
-        if (entry.tank.destroyed) continue;
-        if (!mine.killsOnContact(entry.tank)) continue;
-        hits.push({ victim: entry, owner: mine.owner });
-        mine.alive = false;
-        break;
+      const result = mine.update(dt, matchTanks);
+      if (result.revealed) revealed = true;
+      if (result.exploded) {
+        exploded = true;
+        shrapnel.push(...Shrapnel.burst(mine.x, mine.y, mine.owner));
       }
     });
 
     this.mines = this.mines.filter((mine) => mine.alive);
-    return hits;
+    return { revealed, exploded, shrapnel };
   }
 
   draw(ctx) {

@@ -98,11 +98,6 @@ class Maze {
   // emitted directly from the edge cells. Every rect is extended by half
   // the wall thickness on all sides so adjacent perpendicular walls meet
   // cleanly at corners with no gap.
-  //
-  // Each rect also carries isBoundary — true only for the four outer edges
-  // of the grid. The laser (laser.js) treats those as the "thick outer
-  // walls" that stop it dead, versus thin interior walls it passes
-  // through, per GAME_SPEC.md section 4.
   _buildWallRects() {
     const half = this.wallThickness / 2;
     const rects = [];
@@ -113,18 +108,18 @@ class Maze {
         const y = row * this.cellSize;
 
         if (cell.top) {
-          rects.push({ left: x - half, top: y - half, right: x + this.cellSize + half, bottom: y + half, isBoundary: row === 0 });
+          rects.push({ left: x - half, top: y - half, right: x + this.cellSize + half, bottom: y + half });
         }
         if (cell.left) {
-          rects.push({ left: x - half, top: y - half, right: x + half, bottom: y + this.cellSize + half, isBoundary: col === 0 });
+          rects.push({ left: x - half, top: y - half, right: x + half, bottom: y + this.cellSize + half });
         }
         if (col === this.cols - 1 && cell.right) {
           const wx = x + this.cellSize;
-          rects.push({ left: wx - half, top: y - half, right: wx + half, bottom: y + this.cellSize + half, isBoundary: true });
+          rects.push({ left: wx - half, top: y - half, right: wx + half, bottom: y + this.cellSize + half });
         }
         if (row === this.rows - 1 && cell.bottom) {
           const wy = y + this.cellSize;
-          rects.push({ left: x - half, top: wy - half, right: x + this.cellSize + half, bottom: wy + half, isBoundary: true });
+          rects.push({ left: x - half, top: wy - half, right: x + this.cellSize + half, bottom: wy + half });
         }
       }
     }
@@ -300,14 +295,28 @@ class Maze {
     return closestWall;
   }
 
-  // The wall rect containing this point, or null. Used by the laser's
-  // raycast (laser.js) — a plain point test, unlike _findWallHit's
-  // radius-based sweep for bullets.
-  wallAt(x, y) {
-    for (const wall of this.wallRects) {
-      if (x >= wall.left && x <= wall.right && y >= wall.top && y <= wall.bottom) return wall;
+  // Moves `mover` by (dx, dy) in the same substep style as moveWithBounce,
+  // but stops dead at the first wall instead of reflecting — used by mine
+  // shrapnel (shrapnel.js), which explicitly does not bounce off walls,
+  // per GAME_SPEC.md section 4.
+  moveStraight(mover, dx, dy) {
+    const steps = 8;
+    const stepDx = dx / steps;
+    const stepDy = dy / steps;
+    let x = mover.x;
+    let y = mover.y;
+
+    for (let i = 0; i < steps; i++) {
+      const nextX = x + stepDx;
+      const nextY = y + stepDy;
+      if (this._findWallHit(nextX, nextY, mover.radius)) {
+        return { x, y, blocked: true };
+      }
+      x = nextX;
+      y = nextY;
     }
-    return null;
+
+    return { x, y, blocked: false };
   }
 
   worldToCell(x, y) {

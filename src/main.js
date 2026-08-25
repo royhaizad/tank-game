@@ -19,10 +19,10 @@ let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitl
 let awaitingRebind = null; // { playerIndex, action } while waiting for a keypress, on briefing or controls screens
 let briefingStatsOpen = false; // whether the Session Stats modal is showing on top of the briefing screen
 
-// Live match state. crates/mines/beams are the power-up side of it
-// (GAME_SPEC.md section 4); each is rebuilt fresh every match, per
+// Live match state. crates/mines/beams/shrapnel are the power-up side of
+// it (GAME_SPEC.md section 4); each is rebuilt fresh every match, per
 // section 10's "power-up state fully reset every new match".
-let maze, matchTanks, bullets, crates, mines, beams;
+let maze, matchTanks, bullets, crates, mines, beams, shrapnel;
 
 // Session-only Kill/Death/Win tallies per HANDOFF.md "Session B" decisions:
 // in-session tallies (not a ranking system), keyed by slot label (P1/AI1/...)
@@ -72,6 +72,7 @@ function startMatch() {
   crates = new CrateField(maze);
   mines = new MineField();
   beams = [];
+  shrapnel = [];
   winner = null;
   screen = 'match';
 }
@@ -88,7 +89,7 @@ function tryFire(tank, clickWhenBlocked) {
   }
   if (!tank.canFire(activeBulletCount(tank))) return;
 
-  WeaponFire.fire(tank, maze, bullets, mines, beams);
+  WeaponFire.fire(tank, maze, bullets, mines, beams, matchTanks);
   tank.cooldownRemaining = tank.effectiveFireCooldown();
 }
 
@@ -149,16 +150,22 @@ function updateMatch(dt) {
   });
 
   // Power-ups, per GAME_SPEC.md section 4. Crates handle their own spawn
-  // cadence and pickups; mines and laser beams report who they caught so
-  // those kills go through the same destroyTank() path as bullet kills.
+  // cadence and pickups; laser beams report who they caught so those
+  // kills go through the same destroyTank() path as bullet kills.
   const crateEvents = crates.update(dt, matchTanks);
   if (crateEvents.spawned) AudioEngine.playPowerupSpawn();
   if (crateEvents.pickups.length > 0) AudioEngine.playPowerupEquip();
 
-  mines.update(dt, matchTanks).forEach(({ victim, owner }) => destroyTank(victim, owner));
+  // Mines no longer kill on contact — stepping on one reveals it, and
+  // stepping back off it detonates it into shrapnel (see mine.js), which
+  // is the only thing that actually kills anyone.
+  const mineEvents = mines.update(dt, matchTanks);
+  if (mineEvents.revealed) AudioEngine.playMineReveal();
+  if (mineEvents.exploded) AudioEngine.playMineExplode();
+  shrapnel.push(...mineEvents.shrapnel);
 
   beams.forEach((beam) => {
-    beam.update(dt, matchTanks);
+    beam.update(dt);
     beam.pendingHits.forEach((victim) => destroyTank(victim, beam.owner));
     beam.pendingHits = [];
   });
@@ -167,6 +174,20 @@ function updateMatch(dt) {
   // matchTanks goes along for the homing missile, which needs every tank's
   // position to pick the nearest one (see Bullet._steerTowardNearestTank).
   bullets.forEach((bullet) => bullet.update(dt, maze, matchTanks));
+
+  shrapnel.forEach((piece) => piece.update(dt, maze));
+  shrapnel.forEach((piece) => {
+    matchTanks.forEach((entry) => {
+      if (!piece.alive || entry.tank.destroyed) return;
+      const dx = piece.x - entry.tank.x;
+      const dy = piece.y - entry.tank.y;
+      const hitDistance = piece.radius + entry.tank.radius;
+      if (dx * dx + dy * dy > hitDistance * hitDistance) return;
+      piece.alive = false;
+      destroyTank(entry, piece.owner);
+    });
+  });
+  shrapnel = shrapnel.filter((piece) => piece.alive);
 
   // Free-for-all, per GAME_SPEC.md section 9: a bullet destroys whatever
   // tank it touches, regardless of who fired it or who's driving either.
@@ -228,6 +249,7 @@ function drawMatchScene() {
 
   bullets.forEach((bullet) => bullet.draw(ctx));
   beams.forEach((beam) => beam.draw(ctx));
+  shrapnel.forEach((piece) => piece.draw(ctx));
 
   const playerEntries = matchTanks.filter((entry) => entry.kind === 'player');
   hud.draw(ctx, canvas, playerEntries, activeBulletCount, stats);
