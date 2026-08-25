@@ -44,6 +44,14 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   and ammo limits. Adding Hard = one row there, one row in the GAME_SPEC 5.1 ladder,
   and dropping `disabled` from the Hard toggle in `src/ui/menu.js`. Tiers missing from
   `AI_TIERS` are greyed out on Mission Briefing and refuse selection.
+- **Scoreboard, awards and names**: the Scoreboard modal (win-ranked tank table
+  + team table + confirmed Reset), 12 session awards with hover tooltips in
+  `src/ui/awards.js`, and 8-character custom names for every tank and both
+  teams, typed directly on the canvas. See GAME_SPEC.md 9.1, 9.3 and 9.4.
+- **Team mode**: Mission Briefing's two battle buttons (All vs All / Teams), the
+  Team Setup screen with drag-and-drop assignment into Team 1 / Team 2, on-map
+  team flags, last-team-standing win with draw handling, AI targeting enemies
+  only, and a team win crediting every member. Friendly fire is ON.
 - **Multiplayer**: Mission Briefing screen (1-3 players, 0-3 AI, per-AI difficulty,
   inline per-player key rebinding); free-for-all (any bullet hurts any tank);
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
@@ -138,6 +146,59 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
 ## Planned next
 
 Nothing currently queued — see Known gaps below for candidates.
+
+**`feat/team-assign` is feature-complete** (not yet merged to `main`). Team
+mode works end to end; see GAME_SPEC.md 9.2 and section 6. How it's put
+together, so the next session doesn't have to re-derive it:
+
+- `config.teamMode` + `config.teams` (slot label -> '1'/'2') in `src/main.js`
+  hold the whole configuration. Assignments are per slot label like `stats`,
+  so they survive count changes and mode switches.
+- `Menu.canStartMatch()` is the single source of truth for whether Battle is
+  allowed, used by both the button's disabled state and the click handler, so
+  they can't disagree.
+- **Drag and drop** lives in `Menu`'s pointer handlers. A finished drop and a
+  plain click on a token both emit the same `team:<slot>:<teamId>` id through
+  the existing `consumeClick()` channel, so `handleTeamAssignClick()` needs no
+  separate drop path. `menu.setScreen(screen)` is called once per frame from
+  the draw callback purely so those handlers stay inert off the Team Setup
+  screen. `suppressClick` stops the browser's click-after-mouseup from also
+  pressing whatever button sits under the drop point.
+- **Friendly fire is ON** (decided 2026-08-24), so the bullet-collision pass in
+  `updateMatch()` is deliberately team-blind and identical in both match types.
+  Teams only change AI targeting (the caller filters the `opponents` array
+  `EasyAI` receives) and the win condition.
+- The team flag is its own draw pass in `drawTeamFlag()` (`src/main.js`), not
+  part of `Tank.draw()` — the tank knows nothing about teams and the flag has
+  to stay upright while the tank rotates.
+- **Names live in `config`** (`tankNames`, `teamNames`), not next to `stats` —
+  that's what makes Reset Stats leave them alone for free. Everything displays
+  through `Menu.displayName()` / `Menu.teamName()`, and stats stay keyed by
+  slot label, so a rename never orphans a tank's history.
+- **Text entry** is a `keydown` listener in `src/main.js` guarded on
+  `editingName`; `Menu._drawNameField()` renders the live buffer and caret.
+  Starting a name edit clears `awaitingRebind` and vice versa, or the two
+  would fight over the same keystrokes.
+- **Modals are overlays, not screens.** `handleOverlayClick()` gets first
+  refusal on every click so buttons behind a modal can't fire through it; the
+  draw order in the loop matches the order it consumes them.
+- `src/ui/awards.js` is pure computation — it takes `stats` and returns award
+  objects with slot labels, and never draws or resolves display names. Adding
+  an award is one entry in `Awards.DEFINITIONS`, ordered by priority since the
+  Result screen slices the top few off the front. `compute()` filters to
+  `holders.length === 1`, so a genuine tie drops the award for that session
+  rather than crediting more than one name.
+- **Name-edit click interception** (`interceptNameEditClick()` in main.js)
+  runs before every other click handler. It's the reason a click on a button
+  while a name is unsaved doesn't fire that button's own action — the click
+  is swallowed and a Keep/Discard dialog (`pendingNameConfirm`) opens instead;
+  the original click has to be repeated once that resolves. An unchanged edit
+  skips the dialog and lets the click through untouched.
+- **Award reveal** (`resultAwardsReveal`/`modalAwardsReveal` in main.js) is a
+  simple `{ index, timer }` per context, ticked in the main loop and reset
+  whenever that context is (re)entered. `index` starts at 1 (not 0) the
+  instant a context opens, so the first award fades in immediately rather
+  than waiting out a full hold first.
 
 ## Known gaps
 

@@ -8,13 +8,16 @@ file before implementing any feature, rather than being re-told the rules.
 ## 1. Overview
 
 **Genre:** Top-down 2D maze tank combat. 1–3 local players and/or 0–3 AI
-opponents, free-for-all, in the same maze at once (see section 5).
+opponents (up to 6 tanks) in the same maze at once (see section 5), fighting
+either free-for-all (the default) or split into two teams (see section 9.2).
 **Inspiration:** Tank Trouble (bouncing-bullet mechanic).
 **Platform:** Browser, HTML5, fully client-side, no backend.
 **Session length:** 1–5 minutes per match.
 **Core loop:** Configure forces (how many players, how many AI, each AI's
-difficulty) on the Mission Briefing screen → free-for-all in a random maze
-→ last tank standing wins → rematch or reconfigure.
+difficulty) on the Mission Briefing screen → pick the match type there with
+one of its two battle buttons, assigning teams on the Team Setup screen if
+it's a team match → fight in a random maze → last tank (all-vs-all) or last
+team standing wins → rematch or reconfigure.
 
 ---
 
@@ -141,14 +144,20 @@ guarantee is structural rather than a convention a later edit could
 quietly break. A navigation fix in Easy is therefore automatically a
 navigation fix in every tier above it.
 
-**Targeting (FFA):** every match is free-for-all (see section 1 and
-section 9) — there is no player-team/AI-team distinction, and a bullet
-hurts whatever tank it touches regardless of who fired it or who's
+**Targeting (FFA):** in a free-for-all match (see section 1 and section 9)
+there is no player-team/AI-team distinction, and a bullet hurts whatever
+tank it touches regardless of who fired it or who's
 driving the tank it hits. Each AI tank targets whichever other living tank
 (player-controlled or AI-controlled) is nearest by walkable path distance,
 re-evaluated every reaction tick alongside its normal re-pathing. If its
 current target is destroyed, it re-targets immediately rather than waiting
 for the next reaction tick.
+
+**Targeting (team mode):** an AI considers only living tanks on the
+*opposing* team, picking the nearest of those by the same rule as above —
+a teammate is never chosen as a target. That is the whole of team-awareness
+in the AI: it is not *protected* from a teammate's bullet, because friendly
+fire is ON (section 9.2), so a stray bounce can still destroy a teammate.
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
@@ -368,24 +377,48 @@ way.
 ## 6. Screens / Flow
 
 1. **Title Screen** — logo, Play button, idle background animation.
-2. **Mission Briefing** — configure forces before battle:
+2. **Mission Briefing** — configure forces before battle. This screen picks
+   *who* fights; the two battle buttons at the bottom pick *how*:
    - Allied Forces: 1P / 2P / 3P toggle picks how many local human players.
      Each active player slot shows its control scheme (Move Forward/Back,
      Turn Left/Right, Fire), rebindable directly from this screen (click a
      key box, press the new key — same swap-conflict rule as the pause
      menu's Change Controls, extended across every player's bindings so no
      two players can ever share a key).
+   - Every active tank slot, player or AI, also shows an editable name field
+     (see section 9.4) — click it and type to rename that tank.
    - Enemy Forces: 0P / 1 / 2 / 3 toggle picks how many AI tanks. Each
      active AI slot independently picks Easy/Medium/Hard (all three tiers
      built and selectable).
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
-   - "Battle!" button starts the match with the configured forces.
-   - Session Stats button (top-right corner) — only shown once at least one
-     match has been tallied this session (see section 9.1); opens a modal
-     overlay with the same scoreboard and Reset Stats button as the Result
-     Screen, plus a Close button to return to Briefing.
-3. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
+   - Two battle buttons, in place of the single "Battle!" this screen used
+     to have. Both need 2+ tanks total and are disabled below that:
+     - **All vs All Battle** — starts a free-for-all immediately.
+     - **Teams Battle** — goes to the Team Setup screen (below). It does
+       *not* check the team split, since Team Setup is where a bad split
+       gets fixed; gating entry would be a dead end.
+   - Scoreboard button (top-right corner) — only shown once at least one
+     match has been tallied this session; opens the Scoreboard modal
+     (section 9.1).
+3. **Team Setup** — reached from Mission Briefing's "Teams Battle" button;
+   see section 9.2 for the rules it enforces. Contains:
+   - A "← Back" button (top-left) returning to Mission Briefing with the
+     forces and assignments intact.
+   - A radio pair, **Play All vs All** / **Play Teams**, so the match type
+     can still be changed from here without navigating back. Arriving via
+     "Teams Battle" selects Play Teams. Selecting Play All vs All dims the
+     team boxes and makes the whole assignment area inert.
+   - Each team's heading is an editable name field — click it and type to
+     rename that team (section 9.4). Only editable in Play Teams.
+   - Two boxes, **Team 1** and **Team 2**, holding a labeled tank token
+     (P1/P2/P3/AI1/AI2/AI3, in that tank's own color) for every configured
+     tank. Drag a token into the other box to reassign it; clicking a token
+     swaps it to the other team instead, for trackpads. Dropping outside a
+     box, or back into its own, changes nothing.
+   - "▶ Battle!" — needs 2+ tanks and, in Play Teams, both teams occupied;
+     disabled with an inline reason otherwise.
+4. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
    players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
    HUD (current weapon icon + ammo count per player — see HUD notes below
    for the multi-player case). Per player the HUD shows a weapon icon, the
@@ -397,14 +430,20 @@ way.
    a finned dart for missile, a badge outline for shield, a spiked ball
    for mine, a lightning bolt for laser) standing in for the real `icon_*`
    sprites until those land; the same icon draws in the HUD and on a
-   map crate, which also shows the weapon's name as a readable label.
-4. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
-   player, red if the winner is an AI tank; "Draw" in the rare simultaneous-
-   kill case — see section 9), buttons:
+   map crate, which also shows the weapon's name as a readable label. In a
+   team match each tank also flies a small team-colored flag (section 9.2).
+5. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
+   player, red if the winner is an AI tank, the winning team's own color if
+   a team won; "Draw" in the rare simultaneous-kill case — see section 9),
+   buttons:
    Rematch (new random maze, same configuration), Change Difficulty (back
    to Mission Briefing — the button keeps its original name from the
    single-AI era even though it now reconfigures the whole match, not just
-   difficulty), Back to Title.
+   difficulty), Back to Title, and Scoreboard (opens the modal in 9.1).
+   Below the buttons it shows the top two or three session awards (section
+   9.3) rather than the full tally table — the numbers are one click away
+   in the Scoreboard, and the awards are what's worth reading the moment a
+   match ends.
 
 ---
 
@@ -477,7 +516,10 @@ the equip chime.
 
 ## 9. Win/Lose Condition
 
-Free-for-all, always — there is no team distinction between players and AI
+Free-for-all is the default and is described here; 2-Team is an opt-in
+alternative picked on the Mission Briefing screen (section 9.2).
+
+In a free-for-all there is no team distinction between players and AI
 (see section 5's Targeting note); a bullet destroys whatever tank it
 touches regardless of who fired it. A destroyed tank plays a brief
 explosion animation where it died and is removed from play, but the match
@@ -505,22 +547,182 @@ words, to fit the space).
 - A kill is credited to whichever tank's bullet destroyed another tank.
   Self-kill via your own ricochet (section 3.2) counts as a death but never
   as a kill against yourself.
-- A win is credited to the last tank standing; a draw (simultaneous mutual
-  kill) credits no one.
+- In all-vs-all, a win is credited to the last tank standing. In a team
+  match it's credited to every tank on the winning team, destroyed members
+  included (section 9.2). A draw (simultaneous mutual kill, or both teams
+  wiped in the same instant) credits no one.
 - Stats survive Rematch, Change Difficulty, and Back to Title. Only an
   explicit Reset Stats button (on the Result Screen or the Briefing stats
   modal — see section 6) clears them. A page refresh also clears them,
   since nothing is persisted — no localStorage, per the no-backend/no-saves
   rule (section 10).
-- Scoreboard tables (Result Screen and the Briefing stats modal) color
-  each stat by type rather than by tank: Win green, Kill red, Death white
-  (white for contrast against this game's uniformly dark backgrounds — not
-  computed dynamically, since nothing here uses a light background). The
-  tank name itself is plain white, not the tank's usual color.
+- Scoreboard tables color each stat by type rather than by tank: Win
+  green, Kill red, Death white (white for contrast against this game's
+  uniformly dark backgrounds — not computed dynamically, since nothing
+  here uses a light background). A tank's name is plain white, not the
+  tank's usual color; a team's name uses its team color.
 - Shown in the in-match HUD (`src/ui/hud.js`, per-player, icon + number
-  only) and as a full scoreboard on the Result Screen and the Briefing
-  stats modal (`src/ui/menu.js`, all tanks used this session, both with
-  the Reset Stats button).
+  only) and in the **Scoreboard** modal (`src/ui/menu.js`).
+
+**The Scoreboard modal** (renamed from "Session Stats"), opened from the
+Mission Briefing button or the Result Screen, holds:
+
+- **Tanks** — one row per slot used this session, **ranked by Wins**, with
+  Kills breaking a tie, then fewest Deaths, then slot order, so two tanks
+  with identical records never reshuffle arbitrarily between views.
+- **Teams** — a separate table of the team tallies (section 9.2), shown
+  only once a team match has been played.
+- **Awards** — a button opening the awards modal (section 9.3).
+- **Reset Stats** — asks for a Yes/No confirmation before wiping anything,
+  since it can't be undone. It clears every tank and team tally; custom
+  names are configuration, not stats, and are deliberately kept (9.4).
+
+Two further counters are tracked per tank purely to feed the awards, and
+are not shown as scoreboard columns: **self-kills** (destroyed by your own
+ricochet) and **team-kills** (destroyed a teammate).
+
+### 9.2 Team Mode (Team 1 vs Team 2)
+
+An opt-in alternative to free-for-all, entered with Mission Briefing's
+"Teams Battle" button (section 6). All-vs-all remains the default and is
+completely unaffected by everything in this section.
+
+**Assignment.** Every configured tank — human or AI, any mix, up to 6 total
+— is assigned to Team 1 or Team 2 by hand on the Team Setup screen. There
+is no auto-balance. Uneven teams are allowed and supported on purpose (e.g.
+1 human vs 3 AI). The default split is every human on Team 1 vs every AI on
+Team 2; any tank can be moved to either team.
+
+- Assignments are stored per slot label (P1–P3, AI1–AI3), like the session
+  stats in 9.1, so they survive changing the player/AI counts, switching
+  match type back and forth, and coming back from a match. They are *not*
+  auto-corrected when the counts change — if the current counts leave one
+  team empty, Battle is disabled with an inline reason until the player
+  fixes the split themselves.
+- Both teams must have at least one tank for a match to start.
+- Team colors (Team 1 blue, Team 2 orange) are a team identity of their
+  own, distinct from each tank's individual color, since a team is a mix
+  of human and AI tanks.
+
+**In-match identification.** Each tank flies a small team-colored flag,
+drawn as a separate pass layered over the tank rather than as part of the
+tank itself: the tank keeps its own color and the flag stays upright while
+the tank rotates beneath it. The P1/AI1 label above each tank stays white
+in both match types — the flag is the only team cue on the map.
+
+**Win condition.** The match ends when every tank on one team is destroyed,
+and the surviving team wins (last team standing) — the team-level
+equivalent of all-vs-all's last-tank-standing. If the last tanks on both
+teams are destroyed in the same instant, it's a draw and neither team wins,
+matching the simultaneous-kill rule in section 9. All-vs-all's own win
+logic is untouched by this.
+
+**Friendly fire: ON.** A bullet destroys whatever tank it touches, teammates
+included — exactly as in free-for-all, with no team-based exemption in the
+collision rule. Teams change who the AI *aims at* and how the match ends,
+not what a bullet does when it lands. The bounce mechanic stays equally
+dangerous for everyone in tight corridors, and self-kill via your own
+ricochet (section 3.2) remains intentional.
+
+- Killing a teammate credits the shooter a kill and the teammate a death,
+  same as any other kill (section 9.1) — there is no separate "own goal"
+  tally.
+- AI still never *targets* a teammate (section 5) — it just isn't protected
+  from a stray bounce.
+
+**Win credit.** A team win credits a 🏆 Win to **every** tank on the winning
+team, including ones destroyed earlier in the match — the win belongs to the
+team, not to whoever happened to survive it (see section 9.1). A draw
+credits no one, as in all-vs-all.
+
+**Team tallies.** Team 1 and Team 2 each keep their own Win/Kill/Death
+totals, shown as a separate table in the Scoreboard (section 9.1) rather
+than mixed into the per-tank rows. Each event is credited to whichever team
+that tank was on *at the time*, not to whoever is on the team now — teams
+get reshuffled between matches, so summing the current roster's stats on
+demand would credit a team with kills scored while that tank was on the
+other side. A team win counts once for the team, not once per member.
+
+### 9.3 Session Awards ("fun facts")
+
+Light-hearted titles handed out from the session tallies — bragging rights
+and material for taking the mickey out of whoever is having a bad night.
+Computed in `src/ui/awards.js`, which is pure calculation and does no
+drawing.
+
+- Judged across the **whole session**, not a single match, so the titles
+  accumulate meaning as the night goes on.
+- Every award **explains itself on hover** — a tooltip describing what it
+  actually measures, since half the titles are jokes rather than
+  self-evident labels.
+- **Exactly one name per award.** If two tanks are genuinely level on the
+  value an award measures (e.g. both on 3 kills for Most Deadly), the
+  award is **suppressed entirely** that session rather than crediting
+  either one — no award ever reads as a list of names.
+- An award only appears when it says something. Awards that every tank
+  would qualify for (everyone on zero kills at session start) are
+  suppressed, and nothing at all is shown until a match has produced some
+  kills, deaths, or wins.
+
+**Reveal.** Awards are shown one at a time, credits-style, rather than as a
+static list — each one fades in, holds briefly, then the next takes its
+place. This plays on both the Result Screen (top two or three) and the
+Awards modal (the full set). A click, or any key press, immediately
+advances to the next award for anyone who doesn't want to wait out the
+pace; once every applicable award has been shown, the sequence just stops.
+
+| Award | Held by |
+|---|---|
+| **Team Killer** | Destroyed the most teammates |
+| **Own Goal Enthusiast** | Destroyed by their own ricochet most often |
+| **Untouchable** | Never destroyed at all, having scored or won |
+| **Champion** | Most wins |
+| **Most Deadly** | Most kills |
+| **Sharpshooter** | Best kill/death ratio |
+| **Victim of the Situation** | Most deaths |
+| **Cannon Fodder** | Worst kill/death ratio |
+| **Glass Cannon** | Above-average kills *and* above-average deaths |
+| **Pacifist** | No kills at all |
+| **Participation Trophy** | Played, never won |
+| **Wallflower** | Below-average kills *and* below-average deaths |
+
+That order is also the **priority order**: the Result Screen shows only the
+first two or three that currently apply, so the rare and funny ones outrank
+the routine ones. The full list lives in the awards modal, opened from the
+Scoreboard (section 9.1). "Held by" in the table above is aspirational —
+in practice an award only shows when exactly one tank qualifies for it,
+per the tie rule above.
+
+### 9.4 Custom Names
+
+Every tank slot (P1–P3, AI1–AI3) and both teams can be renamed.
+
+- **Tanks** are renamed on the Mission Briefing screen — the name field
+  sits directly after that tank's own label ("PLAYER 1  [Izzad]" /
+  "AI 1  [Bolt]"), not floating above it. **Teams** are renamed on the Team
+  Setup screen, by clicking the team's heading.
+- Names are capped at **8 characters** — enough for a first name, short
+  enough that labels above two nearby tanks don't collide on the maze.
+- Text entry is drawn on the canvas, using the same "click it, then press
+  keys" idiom as key rebinding, because this game has no DOM UI. Typing and
+  Backspace only; three ways to finish an edit:
+  - **Enter**, or clicking the small checkmark button inside the field's
+    right edge — both commit immediately, no confirmation needed.
+  - **Escape** — cancels immediately, no confirmation needed.
+  - **Clicking anything else** (another field, any button) while the text
+    actually changed — swallows that click and asks **Keep / Discard**
+    first. The click that triggered the dialog is *not* carried out
+    afterward; the user clicks it again once the name is resolved. If
+    nothing was actually changed, clicking away just closes the edit
+    silently and lets that click proceed normally.
+- Clearing the field (Backspace to empty, then commit) restores the default
+  name (P1, Team 1, etc).
+- A custom name is **display only**. Stats stay keyed by slot label
+  internally, so renaming P1 to "Izzad" keeps that slot's existing history
+  rather than starting a new row, and Reset Stats never clears a name.
+- The name replaces the label everywhere it appears: above the tank on the
+  maze, in the HUD, on the Team Setup tokens, in the Scoreboard, in the
+  awards, and in the Result Screen's "`<name>` Wins!" banner.
 
 ---
 
