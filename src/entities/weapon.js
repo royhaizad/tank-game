@@ -89,14 +89,16 @@ Weapons.defs = {
     bulletKind: 'missile'
   },
 
-  // Not fired — picking it up grants a 6s bubble and leaves the tank on
-  // the base cannon (see Tank.equipWeapon). Deflects ANY bullet, including
-  // its own wearer's returning ricochet (GAME_SPEC.md section 4); an
-  // enemy's laser is absorbed the same way, but shrapnel from a mine
-  // (see mine.js/shrapnel.js) still kills through it regardless, and the
-  // wearer's OWN laser still hits them (see laser.js) — the shield only
-  // ever protects against someone/something else's shot when it comes to
-  // lasers. Drawback: purely defensive, no offense of its own.
+  // Not fired, and not really a "weapon" — picking it up grants a 10s
+  // bubble as a buff layered on top of whatever's currently equipped
+  // (see Tank.equipWeapon), rather than replacing it. Deflects ANY
+  // bullet, including its own wearer's returning ricochet (GAME_SPEC.md
+  // section 4); an enemy's laser is absorbed the same way, but shrapnel
+  // from a mine (see mine.js/shrapnel.js) still kills through it
+  // regardless, and the wearer's OWN laser still hits them (see
+  // laser.js) — the shield only ever protects against someone/
+  // something else's shot when it comes to lasers. Drawback: purely
+  // defensive, no offense of its own.
   shield: {
     name: 'Shield',
     color: '#5bc8f5',
@@ -106,8 +108,9 @@ Weapons.defs = {
 
   // Drawback: invisible after 1s to EVERYONE including whoever dropped
   // it. Stepping on a hidden mine reveals it (see mine.js); stepping back
-  // off it detonates it into shrapnel (shrapnel.js) that hits regardless
-  // of owner, once the dropper's one-time grace departure is used up.
+  // off it lights a fuse rather than detonating outright, then explodes
+  // into shrapnel (shrapnel.js) that hits regardless of owner, once the
+  // dropper's one-time grace departure is used up.
   mine: {
     name: 'Mine',
     color: '#8a7f6d',

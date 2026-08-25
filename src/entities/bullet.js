@@ -18,7 +18,7 @@ class Bullet {
   static KINDS = {
     cannon: { speed: 160, radius: 3, maxLifetime: 6, maxBounces: 5, color: '#f2c14e' },
     gatling: { speed: 190, radius: 2, maxLifetime: 4, maxBounces: 4, color: '#e8eef2' },
-    pellet: { speed: 200, radius: 2, maxLifetime: 0.8, maxBounces: 2, color: '#e08a3c' },
+    pellet: { speed: 200, radius: 2, maxLifetime: 0.96, maxBounces: 2, color: '#e08a3c' }, // maxLifetime is 20% longer range than the original 0.8s
     missile: {
       speed: 130,
       homingSpeed: 90, // px/s, slower once it starts homing

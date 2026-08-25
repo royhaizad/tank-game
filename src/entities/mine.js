@@ -12,10 +12,15 @@
 // making the weapon unusable rather than risky. Step onto your own mine
 // again later (you will, since it's invisible again by then) and leave it
 // a second time, and it detonates on you exactly like anyone else's.
+//
+// A real detonation isn't instant either — once a step-off actually
+// triggers it, it's a committed FUSE_DELAY away from going off rather
+// than blowing the instant the trigger condition is met.
 class Mine {
   static ARM_DELAY = 0.35; // s before the mine can be triggered at all
   static VISIBLE_FOR = 1; // s the mine stays visible right after being dropped
   static TRIGGER_RADIUS = 12; // px, mine's own body radius (plus the tank's) — same radius as the drawn black circle, not the small red center dot
+  static FUSE_DELAY = 0.5; // s between a real trigger and the actual detonation
 
   constructor(x, y, owner) {
     this.x = x;
@@ -27,16 +32,17 @@ class Mine {
 
     this.revealed = false; // stepped-on visible state, separate from the placement window
     this.occupants = new Set(); // tanks currently touching, refreshed every frame
+    this.fuseRemaining = null; // set once triggered; counts down to the actual detonation
   }
 
   isArmed() {
     return this.age >= Mine.ARM_DELAY;
   }
 
-  // Visible either during its brief placement window, or once a tank has
-  // stepped on it and revealed it.
+  // Visible either during its brief placement window, once a tank has
+  // stepped on it and revealed it, or while its fuse is burning.
   isVisible() {
-    return this.age < Mine.VISIBLE_FOR || this.revealed;
+    return this.age < Mine.VISIBLE_FOR || this.revealed || this.fuseRemaining !== null;
   }
 
   triggeredBy(tank) {
@@ -46,12 +52,23 @@ class Mine {
     return dx * dx + dy * dy <= reach * reach;
   }
 
-  // Advances the reveal/detonate state machine. Returns { revealed,
+  // Advances the reveal/fuse/detonate state machine. Returns { revealed,
   // exploded } so MineField can turn those into sounds and a shrapnel
   // burst — this class only tracks state, it doesn't know about audio or
-  // Shrapnel.
+  // Shrapnel. `exploded` is only ever true on the frame the fuse actually
+  // runs out, not the frame that lit it.
   update(dt, matchTanks) {
     this.age += dt;
+
+    // A lit fuse is a done deal — ignore everything else and just count
+    // down to the detonation.
+    if (this.fuseRemaining !== null) {
+      this.fuseRemaining -= dt;
+      if (this.fuseRemaining > 0) return { revealed: false, exploded: false };
+      this.alive = false;
+      return { revealed: false, exploded: true };
+    }
+
     if (!this.isArmed()) return { revealed: false, exploded: false };
 
     const current = new Set(
@@ -66,19 +83,19 @@ class Mine {
       revealedNow = true;
     }
 
-    let exploded = false;
     if (this.revealed) {
       const departed = [...this.occupants].filter((tank) => !current.has(tank));
+      let triggered = false;
       for (const tank of departed) {
         if (tank === this.owner && !this.ownerHasLeft) {
           this.ownerHasLeft = true; // one-time grace, used up
         } else {
-          exploded = true;
+          triggered = true;
         }
       }
 
-      if (exploded) {
-        this.alive = false;
+      if (triggered) {
+        this.fuseRemaining = Mine.FUSE_DELAY; // lit — detonates in a future update()
       } else if (departed.length > 0 && current.size === 0) {
         // Everyone who was here left harmlessly (via the owner's grace)
         // and nobody new has stepped on yet — go back to waiting.
@@ -87,7 +104,7 @@ class Mine {
     }
 
     this.occupants = current;
-    return { revealed: revealedNow, exploded };
+    return { revealed: revealedNow, exploded: false };
   }
 
   draw(ctx) {

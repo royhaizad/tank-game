@@ -18,7 +18,7 @@
 // just the shooter), the brief travel time is a genuine dodge window, and
 // it's still only 1 shot.
 class LaserBeam {
-  static MAX_BOUNCES = 5; // matches Bullet.KINDS.cannon.maxBounces
+  static MAX_BOUNCES = 6; // 20% more than the cannon's 5, for a longer-reaching shot
   static TRAVEL_SPEED = 1400; // px/s — fast, but gives a real dodge window
   static FLASH_TIME = 0.15; // s the beam stays drawn once it lands
   static MAX_TRAVEL = 6000; // px, a generous safety ceiling — not a designed limit

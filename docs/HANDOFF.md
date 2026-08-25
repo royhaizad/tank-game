@@ -80,16 +80,28 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
     target. `maxLifetime` raised 6s -> 9s so the slower missile has time to close in.
   - **Mine** (`mine.js` + `shrapnel.js`) no longer kills on contact. A hidden, armed
     mine reveals itself (and plays a sound) the instant a tank steps on it; stepping
-    back off it detonates it into `Shrapnel.COUNT` (8) pieces sprayed outward (and
-    plays a sound) via `Shrapnel.burst()`. Shrapnel travels in a straight line via the
-    new `Maze.moveStraight()` — same substep style as `moveWithBounce`, but stops dead
-    at a wall instead of reflecting. The dropper's mine still grants one free
-    departure (`Mine.ownerHasLeft`) before it turns lethal on them too, same grace
-    rule as the old direct-contact version, just applied to the new step-off trigger.
-    `Mine.TRIGGER_RADIUS` doubled to 12 (was 6) — it already drove both the hitbox
-    and the drawn black circle's radius, so this was a pure size bump, not a
-    hitbox/visual mismatch fix.
-  - **Shield** (`weapon.js`, `Weapons.defs.shield.duration`) extended 6s -> 10s.
+    back off it lights a fuse (`Mine.FUSE_DELAY`, 0.5s) rather than detonating
+    outright — `Mine.update()` returns `exploded: true` only on the frame the fuse
+    actually runs out, never the frame that lit it. Once lit, `fuseRemaining !== null`
+    short-circuits the rest of the state machine (see the top of `update()`) — a lit
+    mine is a done deal, nothing can reset or stop it. On detonation it sprays
+    `Shrapnel.COUNT` (8) pieces outward (and plays a sound) via `Shrapnel.burst()`.
+    Shrapnel travels in a straight line via the new `Maze.moveStraight()` — same
+    substep style as `moveWithBounce`, but stops dead at a wall instead of reflecting.
+    The dropper's mine still grants one free departure (`Mine.ownerHasLeft`) before it
+    turns lethal on them too, same grace rule as the old direct-contact version, just
+    applied to the new step-off trigger (which now lights the fuse instead of
+    detonating immediately). `Mine.TRIGGER_RADIUS` doubled to 12 (was 6) — it already
+    drove both the hitbox and the drawn black circle's radius, so this was a pure size
+    bump, not a hitbox/visual mismatch fix.
+  - **Shield** (`weapon.js`, `Weapons.defs.shield.duration`) extended 6s -> 10s, and
+    `Tank.equipWeapon()` no longer calls `revertToCannon()` for it — picking one up
+    used to silently discard whatever weapon (and remaining ammo) was equipped,
+    forcing the tank back to the base cannon; it's now a pure buff layered on top,
+    leaving the current weapon untouched.
+  - **Laser** bounce cap raised 5 -> 6 (`LaserBeam.MAX_BOUNCES`) and **shotgun**
+    pellet range raised via `maxLifetime` 0.8s -> 0.96s (`Bullet.KINDS.pellet`) — both
+    a flat 20% longer shot, per user request.
   - **Explosion** (`explosion.js`, new): a canvas-drawn flash + expanding rings,
     spawned by `destroyTank()` in `main.js` for every kill regardless of cause. When
     the match-ending kill drops survivors to ≤1, `updateMatch()` no longer switches to

@@ -41,14 +41,14 @@ class Tank {
     this.shieldRadius = this.radius + 8; // px
   }
 
-  // Swaps to a crate's weapon. Shield is the odd one out: it's not fired,
-  // so picking it up grants the bubble and leaves the tank shooting its
-  // base cannon rather than stranding it with an unusable "weapon".
+  // Swaps to a crate's weapon. Shield is the odd one out: it's not fired
+  // and isn't really a "weapon" the tank holds — picking it up grants the
+  // bubble as a buff layered on top of whatever's currently equipped,
+  // leaving that weapon (and its remaining ammo) untouched.
   equipWeapon(type) {
     const def = Weapons.def(type);
     if (type === Weapons.SHIELD) {
       this.shieldRemaining = def.duration;
-      this.revertToCannon();
       return;
     }
     this.weapon = type;
