@@ -94,10 +94,23 @@ this balance in any future power-up added.
 ## 5. AI Opponents — 3 Difficulty Tiers, 0–3 Simultaneous
 
 0–3 AI tanks per match, each independently set to Easy/Medium/Hard on the
-Mission Briefing screen (see section 6). Currently only Easy is
-implemented — Medium and Hard are selectable in the UI but disabled
-("Coming soon") until built, same treatment as any other not-yet-built
-feature in this doc.
+Mission Briefing screen (see section 6). Easy and Hard are implemented;
+Medium is still selectable in the UI but disabled ("Coming soon") until
+built, same treatment as any other not-yet-built feature in this doc.
+
+Every tier is one class in `src/ai/`, and every tier shares the same
+architecture — a `seek / cornerTurn / blockedTurn / attempting /
+reversing` state machine driving `{ forward, backward, left, right }` +
+`wantsToFire`, exactly the shape a human player's input produces (see
+section 7), so an AI tank runs through the identical `Tank.update()` and
+firing path a player's tank does. **Movement always steers toward a
+pathfound waypoint, at every tier, without exception** — never a raw
+line-of-sight straight line at the target, for the reason spelled out in
+"Movement direction" below. A tier is defined by *how far it scales up*
+the axes in the ladder table, not by inventing its own navigation.
+`HardAI` therefore literally extends `EasyAI` (`src/ai/hard.js`), so that
+guarantee is structural rather than a convention a later edit could
+quietly break.
 
 **Targeting (FFA):** every match is free-for-all (see section 1 and
 section 9) — there is no player-team/AI-team distinction, and a bullet
@@ -108,17 +121,25 @@ re-evaluated every reaction tick alongside its normal re-pathing. If its
 current target is destroyed, it re-targets immediately rather than waiting
 for the next reaction tick.
 
-| Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
-|---|---|---|---|---|---|
-| **Easy** | "Hallway driving": commits to a straight heading down a whole corridor at a time, stops and pivots cleanly at corners, and only stops/turns/reverses when something the route didn't anticipate blocks it | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-targeting which opponent only — pathing/waypoint updates, obstacle response, corner turns, and firing are all immediate, see notes) | Ignores ~half the time |
-| **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
-| **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
+**The difficulty ladder.** Each tier scales the same four axes up; a new
+tier belongs in this table, not in a section of its own.
+
+| Tier | Movement | Aim | Bank shots | Fire trigger | Ammo | Reaction delay | Power-up behavior |
+|---|---|---|---|---|---|---|---|
+| **Easy** | "Hallway driving": commits to a straight heading down a whole corridor at a time, stops and pivots cleanly at corners, and only stops/turns/reverses when something the route didn't anticipate blocks it | Aims at the target's current position only | None (direct line of sight only) | Instant (0s) once aimed-at and visible | 1 bullet in flight, 1s cooldown | ~0.8s (re-targeting which opponent only — pathing/waypoint updates, obstacle response, corner turns, and firing are all immediate, see notes) | Ignores ~half the time |
+| **Medium** | *Coming soon* — hallway driving plus dodging | *Coming soon* | *Coming soon* — occasional 1-wall | *Coming soon* | *Coming soon* | ~0.4s | Goes for it if closer to the AI than the player |
+| **Hard** | Hallway driving **+ dodging + flanking**: same pathfinder, but the goal cell is chosen to approach from off the target's current facing, and it bursts out of the predicted path of an incoming bullet | **Leads the target** using its velocity — aims where you'll be when the bullet arrives, not where you are | **Multi-wall, calculated**: searches firing angles whose traced ricochet path lands on the target within 3 bounces; rejects any that would ricochet back into itself first | 0.15s of continuous aim-on-solution | 3 bullets in flight, 0.3s cooldown | ~0.1s | Aggressively contests pickups, evasive strafing |
 
 **Note:** Easy now also pathfinds around walls (added to fix it getting stuck leaning
 on a wall with no route to its target), so "pathfinding" no longer distinguishes
 Medium/Hard from Easy. When Medium is built, it needs a different defining trait
 than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
-aiming, or actually using bank shots — to stay meaningfully harder than Easy.
+aiming, or actually using bank shots — to stay meaningfully harder than Easy, and
+has to land between Easy and Hard on every axis above.
+
+**Note:** the Power-up behavior column is aspirational for *every* tier — crates
+and weapons (section 4) aren't built yet, so no tier currently reacts to them at
+all. Those cells describe the intent for when section 4 ships.
 
 **Firing trigger (Easy):** fires instantly (0s delay) the moment its current target is
 aimed-at and directly visible (unobstructed line of sight) — not a random chance, and
@@ -169,10 +190,85 @@ obstacle, or a maze-wall collision push) could otherwise leave it committed to a
 waypoint on the other side of a wall it could never cross no matter how it turned,
 which read as the AI "getting stuck" pressed against a wall.
 
-**Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
-cooldown after it's gone before firing again — stricter than the player's 5-bullet,
-no-cooldown base cannon from section 3.2. Keeps the AI from flooding the maze with
-bullets at close range.
+**Firing trigger (Hard):** needs 0.15s of continuously holding a valid *firing
+solution* before the shot goes out — not merely 0.15s of the target being visible.
+A firing solution is either a direct lead shot or a bank shot (below), and pointing
+at a bare wall is a perfectly legitimate thing for Hard to be doing. The brief hold
+is what buys the accuracy: Easy fires the instant it sees you and hits where you
+were, Hard takes an extra beat and hits where you're going.
+
+**Aim — leading (Hard):** aims at where the target will be when the bullet arrives,
+derived from the target's own velocity. Flight time depends on the lead point and
+the lead point depends on flight time, so it solves that fixed point iteratively. A
+predicted point behind a wall is discarded (the target can't actually get there in a
+straight line), falling back to its present position.
+
+**Aim — bank shots (Hard):** with no direct line, Hard sweeps candidate firing
+angles and traces each one's ricochet path through the maze, using the *same*
+reflection rule the real bullet obeys (the wall's own orientation picks the mirror
+axis — see section 3.2 and `Maze.moveWithBounce`), keeping the cheapest angle whose
+path lands on the target within 3 bounces. Two constraints keep it honest:
+- Traced shots are fired from where the muzzle *will* be once the tank has turned
+  onto that angle, not from where the barrel points now — the barrel swings with the
+  turret, and tracing from the current tip put the shot's origin a whole barrel
+  length off.
+- A candidate whose path would cross the AI's *own* hull before reaching the target
+  is rejected outright. Self-kill by own ricochet is a real mechanic (section 3.2),
+  so an AI that calculates bank shots has to calculate its way out of suiciding too.
+
+**Dodging (Hard):** predicts each nearby bullet's flight forward — bounces included,
+stepped through the maze's own bounce solver so the prediction can't disagree with
+what the bullet actually does — and, if one would hit, commits a short burst
+forward or backward out of its path. Because a tank only drives along its own facing
+(section 3.1), a bullet coming straight down the corridor it's pointed along is
+genuinely undodgeable by driving; in that case Hard holds its route and shoots back
+rather than flailing. It ignores its own just-fired bullet until a bounce sends it
+back.
+
+**Flanking (Hard):** Hard does *not* pathfind to the target's cell. It pathfinds to
+a cell 1–3 steps away from the target, scored on how far around the target's back it
+sits (bearing from the target to that cell vs. the way the target is currently
+facing) against what the detour costs in travel — so it comes at you from behind or
+the side instead of driving straight down your barrel. Inside 2 cells it drops the
+manoeuvring and just closes in. Crucially this changes only the *destination handed
+to the pathfinder*: run compression into hallway waypoints, corner pivots, and
+off-path replanning are all the same code Easy runs, so flanking can never degrade
+into raw line-of-sight steering.
+
+**Aim-hold (Hard):** when a firing solution exists but the tank isn't pointed at it,
+Hard stops and pivots onto it, then holds still through the 0.15s fire trigger — its
+own route-following steering would otherwise drag the barrel back off the solution
+before the shot left. Both this and dodging are extra states in the same state
+machine, and both can only be entered from `seek`, so neither can interrupt an
+obstacle-recovery sequence part-way through and strand the tank. Both are capped by
+a timeout and followed by a forced stretch of normal movement, so Hard can't freeze
+in place or dodge-chatter. The hold is also gated on the shot being *takeable right
+now* — not on cooldown, not at the 3-bullet cap, barrel not jammed against a wall —
+because standing still to aim a shot that physically cannot leave the barrel is all
+downside: the tank is a stationary target and nothing comes of it.
+
+**Arriving on top of the target (Hard):** the pathfinder has nothing to route once
+the tank is already standing in its destination cell — the path is one cell long, so
+the waypoint is the tank's *own* cell centre, and steering at that produces a
+meaningless heading that walks the tank into the nearest wall and leaves it churning
+through obstacle recovery. On arrival Hard therefore steers at the real target
+instead, and stops driving entirely once the steer point is underfoot, letting the
+firing logic finish the job. This is the single case where Hard aims at a target
+rather than a pathfound waypoint, and it is safe precisely because it is confined to
+one cell — the pathfinder has already established there is no wall in between. Every
+route longer than that still belongs to the pathfinder.
+
+**Giving up on a flank (Hard):** if the shared stuck detector concludes the current
+route isn't working and forces a fresh plan, Hard also discards the flanking cell it
+was heading for and refuses to re-pick it until the target moves. The flanking cell
+is what proved unreachable, so replanning toward it again just retries the same
+losing approach against the same corner.
+
+**Ammo (per tier):** every AI tier is stricter than the player's 5-bullet,
+no-cooldown base cannon from section 3.2 — that's what keeps the AI from flooding
+the maze with bullets at close range. Easy fires 1 bullet at a time with a ~1s
+cooldown; Hard fires up to 3 at a time with a 0.3s cooldown. Each tier owns its own
+numbers (see the ladder table), applied to its Tank when the match starts.
 
 ---
 
@@ -187,8 +283,9 @@ bullets at close range.
      menu's Change Controls, extended across every player's bindings so no
      two players can ever share a key).
    - Enemy Forces: 0P / 1 / 2 / 3 toggle picks how many AI tanks. Each
-     active AI slot independently picks Easy/Medium/Hard (Medium/Hard
-     disabled — "Coming soon," same as everywhere else in this doc).
+     active AI slot independently picks Easy/Medium/Hard (Easy and Hard
+     both selectable; Medium disabled — "Coming soon," same as everywhere
+     else in this doc).
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
    - "Battle!" button starts the match with the configured forces.
