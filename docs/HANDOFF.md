@@ -32,6 +32,18 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stops being reachable along the path it was planned from (e.g. shoved off-course by
   reversing) — the earlier root cause of it looking permanently stuck against a wall.
   Fires instantly (0s delay) on aim+line-of-sight; limited to 1 bullet + 1s cooldown.
+- **Medium AI** (`src/ai/medium.js`): `class MediumAI extends EasyAI` — inherits all of
+  the above navigation untouched (so Easy nav fixes are Medium nav fixes) and turns up
+  four dials: ~9° fire window instead of ~15° (only takes clean shots), 2 bullets + 0.6s
+  cooldown, 0.4s re-target cadence, and a dodge that sidesteps bullets on a collision
+  course within 180px. Wins ~60% vs Easy over 500 headless matches (even = 50%).
+  **Predictive/leading aim was built, measured, and cut** — with no turret the shot
+  always leaves along the driving heading, so leading only shifts *when* it fires. See
+  GAME_SPEC.md section 5.1; it belongs in Hard, together with aim-turning.
+- **AI tier wiring**: `AI_TIERS` in `src/main.js` maps a tier name to its brain class
+  and ammo limits. Adding Hard = one row there, one row in the GAME_SPEC 5.1 ladder,
+  and dropping `disabled` from the Hard toggle in `src/ui/menu.js`. Tiers missing from
+  `AI_TIERS` are greyed out on Mission Briefing and refuse selection.
 - **Scoreboard, awards and names**: the Scoreboard modal (win-ranked tank table
   + team table + confirmed Reset), 12 session awards with hover tooltips in
   `src/ui/awards.js`, and 8-character custom names for every tank and both
@@ -47,15 +59,89 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   and full key rebinding.
 - **Bullet tuning**: bullet speed 160 px/s (was 320, now just faster than a tank's
   140 px/s top speed instead of much faster — easier to react to and dodge). Player
-  base cannon: tap fires instantly, holding the fire key auto-fires every 0.5s
-  (`PLAYER_AUTO_FIRE_INTERVAL` in `src/main.js`), still capped at 5 in flight. AI
-  unchanged (1 in flight + 1s cooldown).
+  base cannon: tap fires instantly, holding the fire key auto-fires every 0.5s, still
+  capped at 5 in flight. AI unchanged (1 in flight + 1s cooldown). That hold-to-repeat
+  interval now comes from the equipped weapon (`Weapons.defs[...].autoFireInterval`)
+  rather than a `PLAYER_AUTO_FIRE_INTERVAL` constant in `src/main.js`.
 - **Session stats**: Win/Kill/Death tallies per tank slot (P1-3/AI1-3), in-session
   only (see GAME_SPEC.md section 9.1). HUD shows per-player icon+number only; Result
   screen and a new Mission Briefing "Session Stats" button (shown once stats exist,
   opens a modal) both show a full scoreboard — icon + word per column, colored by
   stat type (green/red/white) — plus a Reset Stats button. Self-kills count as a
   death but not a kill.
+
+- **Power-ups** (`src/entities/weapon.js`, `crate.js`, `mine.js`, `shrapnel.js`,
+  `laser.js`): crates spawn every 3–7s on random empty cells (live cap rolled 1–4 per
+  match); driving over one swaps your weapon until its ammo runs out, then reverts to
+  the base cannon. All six weapons are in — Gatling, Shotgun, Homing Missile, Shield,
+  Mine, Laser (see GAME_SPEC.md section 4 for each one's numbers and its drawback).
+  `Weapons.defs` in `weapon.js` is the single tuning table; a weapon there can
+  override the tank's in-flight bullet cap, cooldown, and hold-to-repeat interval
+  while it's equipped. Every lethal thing in a match (bullets, mine shrapnel, laser
+  beams) books its kill through one `destroyTank()` in `src/main.js`, so stats work
+  the same regardless of cause.
+  - **Laser** (`laser.js`) bounces off every wall — interior and the outer boundary —
+    with the exact same mirror-angle reflection as the cannon, up to
+    `LaserBeam.MAX_BOUNCES` (5), by reusing `Maze.moveWithBounce` directly rather than
+    reimplementing the math. `LaserBeam.traceBounce()` (wall-only, no tank positions)
+    computes that fixed path once at fire time — geometry only — and is shared with
+    the dotted aim-preview. Firing does NOT resolve instantly: `LaserBeam.update()`
+    advances a "travelled" distance along that path each frame at
+    `LaserBeam.TRAVEL_SPEED` (1400 px/s) and hit-tests against LIVE tank positions as
+    it goes (substepped via `HIT_SUBSTEPS` so a fast frame can't skip a tank), so a
+    target has a brief real window to dodge after the shot is locked in but before it
+    lands. `draw()` renders the beam growing toward its target (`_truncatedPoints()`)
+    rather than appearing all at once. `WeaponFire.fire()` and the beams update loop
+    in `main.js` pass `matchTanks` through to `update()`, not the constructor.
+  - **Missile** (`bullet.js`, `Bullet.KINDS.missile`) slows from `speed` (130) to
+    `homingSpeed` (90) the moment it starts homing (previously constant speed the
+    whole flight), and `_steerTowardNearestTank()` now explicitly skips
+    `entry.tank === this.owner` — the shooter can no longer be its own missile's
+    target. `maxLifetime` raised 6s -> 9s so the slower missile has time to close in.
+  - **Mine** (`mine.js` + `shrapnel.js`) no longer kills on contact. A hidden, armed
+    mine reveals itself (and plays a sound) the instant a tank steps on it; stepping
+    back off it lights a fuse (`Mine.FUSE_DELAY`, 0.5s) rather than detonating
+    outright — `Mine.update()` returns `exploded: true` only on the frame the fuse
+    actually runs out, never the frame that lit it. Once lit, `fuseRemaining !== null`
+    short-circuits the rest of the state machine (see the top of `update()`) — a lit
+    mine is a done deal, nothing can reset or stop it. On detonation it sprays
+    `Shrapnel.COUNT` (8) pieces outward (and plays a sound) via `Shrapnel.burst()`.
+    Shrapnel travels in a straight line via the new `Maze.moveStraight()` — same
+    substep style as `moveWithBounce`, but stops dead at a wall instead of reflecting.
+    The dropper's mine still grants one free departure (`Mine.ownerHasLeft`) before it
+    turns lethal on them too, same grace rule as the old direct-contact version, just
+    applied to the new step-off trigger (which now lights the fuse instead of
+    detonating immediately). `Mine.TRIGGER_RADIUS` doubled to 12 (was 6) — it already
+    drove both the hitbox and the drawn black circle's radius, so this was a pure size
+    bump, not a hitbox/visual mismatch fix.
+  - **Shield** (`weapon.js`, `Weapons.defs.shield.duration`) extended 6s -> 10s, and
+    `Tank.equipWeapon()` no longer calls `revertToCannon()` for it — picking one up
+    used to silently discard whatever weapon (and remaining ammo) was equipped,
+    forcing the tank back to the base cannon; it's now a pure buff layered on top,
+    leaving the current weapon untouched. It also no longer activates on pickup:
+    `equipWeapon()` sets `Tank.shieldCharged = true` instead of touching
+    `shieldRemaining` directly; `Tank.tryActivateShieldCharge()` pops that charge into
+    a live `shieldRemaining` the moment fire is pressed, called from the top of
+    `tryFire()` in `main.js` — unconditionally, before the barrel-blocked/`canFire()`
+    checks, so pressing shoot always reliably pops a held charge even if the
+    underlying weapon's shot doesn't actually go through. `Hud.draw()` shows
+    `🛡️(ready)` for a charged-but-inactive shield, vs. the countdown once it's live.
+    Also fixed: an active shield previously did nothing against mine shrapnel — the
+    shrapnel-vs-tank collision loop in `main.js` now checks `entry.tank.hasShield()`
+    and uses `shieldRadius` the same way the bullet and laser collision checks
+    already did, absorbing the piece (like a laser) rather than letting it through.
+  - **Laser** bounce cap raised 5 -> 6 (`LaserBeam.MAX_BOUNCES`) and **shotgun**
+    pellet range raised via `maxLifetime` 0.8s -> 0.96s (`Bullet.KINDS.pellet`) — both
+    a flat 20% longer shot, per user request.
+  - **Mine shrapnel** (`shrapnel.js`, `Shrapnel.burst()`) now sprays in fully random
+    directions (`Math.random() * Math.PI * 2` per piece) instead of 8 evenly-spaced
+    angles with a small jitter — `Shrapnel.SPREAD_JITTER` is gone, no longer needed.
+  - **Explosion** (`explosion.js`, new): a canvas-drawn flash + expanding rings,
+    spawned by `destroyTank()` in `main.js` for every kill regardless of cause. When
+    the match-ending kill drops survivors to ≤1, `updateMatch()` no longer switches to
+    `screen = 'result'` immediately — it sets `matchEndTimer = RESULT_DELAY` (2s) and,
+    while that's counting down, short-circuits to only updating/drawing explosions
+    (everything else stays frozen at its final position) until the timer expires.
 
 ## Planned next
 
@@ -116,13 +202,33 @@ together, so the next session doesn't have to re-derive it:
 
 ## Known gaps
 
-Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **power-ups** (#5),
-**pixel art pass** (#7), **audio pass** (#8) all remain.
+Per `GAME_SPEC.md` section 12: **pixel art pass** (#7) and **audio pass** (#8) are all
+that remain — movement/bullets/maze (#1-3), all three AI tiers (#4), power-ups (#5),
+and menus (#6) are done.
 
-- **Medium/Hard AI don't exist** — shown but disabled ("Coming soon") in the UI.
-  GAME_SPEC.md section 5 flags they need a *new* defining trait (predictive aiming,
-  bank shots, faster paths), since "pathfinding when out of sight" no longer separates
-  them from Easy.
+- **Power-up sprites are placeholders.** The crate box, mine body, and shield bubble
+  are still plain rects/circles. The weapon icon itself is a step up from a flat
+  swatch now — `Weapons.drawIcon` (`weapon.js`) procedurally draws a distinct bold
+  shape per weapon (three bars for gatling, a pellet fan for shotgun, a finned dart
+  for missile, a badge outline for shield, a spiked ball for mine, a lightning bolt
+  for laser), shared by both `Crate.draw` (with a readable name label underneath) and
+  `Hud.draw`. The real assets (`weapon_crate`, `land_mine`, `shield_bubble`, `icon_*`)
+  exist but are oversized raw exports being resized on `feat/sprites` — swapping them
+  in should only need `Crate.draw`, `Mine.draw`, `Tank._drawShield`, and replacing
+  `Weapons.drawIcon`'s canvas-drawn shapes with `drawImage` calls.
+- **Power-up SFX are synthesized, no audio files.** Events per weapon lifecycle
+  (`AudioEngine` in `engine/audio.js`): `playPowerupSpawn` (crate appears),
+  `playPowerupEquip` (renamed from `playPickupChime` — a tank drives over one), a
+  weapon-specific "use" sound dispatched from `WeaponFire._playFireSound` in
+  `weapon.js` (`playGatlingShot`/`playShotgunBlast`/`playMissileLaunch`/
+  `playMineDrop`/`playLaserFire`) the instant that weapon actually fires, and
+  `playShieldActivate` when a held shield charge pops (see `tryFire` in `main.js`).
+  Cannon has no "use" sound by design — it isn't a power-up.
+- **Easy AI doesn't seek crates.** It picks up whatever it drives over and fires it
+  through the normal path, but doesn't path toward crates or contest them — that's a
+  Medium/Hard trait per GAME_SPEC.md section 5 and isn't built for power-up pickups
+  specifically (Medium/Hard's *combat* behavior against each other is built — see the
+  section 5.1 ladder above).
 - `assets/sprites/` (22 files) is untracked on purpose — no code references sprites yet.
 - Only synthesized audio exists (`src/engine/audio.js`, empty-fire click via Web Audio).
 

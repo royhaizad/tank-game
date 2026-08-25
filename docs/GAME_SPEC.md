@@ -54,7 +54,10 @@ the field — cannot pass through any of them.
   Holding the fire key down auto-fires a new bullet every 0.5s for as
   long as it's held (and the 5-bullet cap allows it) — releasing and
   re-tapping always fires instantly again, the 0.5s pacing only applies
-  between repeat shots while held. Firing is also capped by the 5-bullet
+  between repeat shots while held. That 0.5s is the *base cannon's*
+  hold-to-repeat rate; an equipped power-up sets its own (0.09s for the
+  gatling, and no auto-fire at all for the one-shot weapons, which need a
+  fresh keypress each time) — see section 4. Firing is also capped by the 5-bullet
   cap regardless of tap or hold. AI opponents use a stricter limit
   instead — see section 5.
 - Bullet speed is 160 px/s — noticeably faster than a tank's own top
@@ -75,32 +78,71 @@ bullets.
 
 ## 4. Power-Ups
 
-Crates spawn on random empty floor tiles every 8–15 seconds (max 1–2
-active on the map at once). Driving over a crate swaps the current weapon;
-it reverts to the base cannon once ammo runs out.
+Crates spawn on random empty floor tiles every 3–7 seconds. The live-crate
+cap is rolled once per match between 1 and 4, so some matches stay scarce
+and weapon-hungry while others are a scramble. A crate never spawns on a
+cell a tank is already standing on (that would read as a free pickup
+rather than something to drive for). Driving over a crate swaps the
+current weapon; it reverts to the base cannon once ammo runs out — the
+base cannon has infinite ammo, so a tank is never left unable to shoot.
+All power-up state resets every match (see section 10).
 
-| Power-Up | Effect |
-|---|---|
-| **Gatling Gun** | Fires continuously while held, high rate, ~15 rounds total, normal bounce physics per bullet |
-| **Shotgun** | 5-shot spread in a narrow cone, shorter range, 3 total shots |
-| **Homing Missile** | Travels straight 2 seconds, then curves toward nearest tank (can target its own shooter), 1 shot |
-| **Shield** | Deflects/absorbs incoming bullets for 6 seconds, visible bubble sprite; own reflected shot can still kill the shielded tank |
-| **Mine** | Drops a trap, invisible after 1 second, explodes when the OTHER tank drives over it, 3 mines total |
-| **Laser** | Instant-hit straight beam, dotted aim-preview line before firing, passes through 1 thin wall, stops at thick outer walls, 1 shot |
+| Power-Up | Effect | Ammo |
+|---|---|---|
+| **Gatling Gun** | Fires continuously while held (~0.09s between rounds, so a held burst empties in ~1.4s), normal bounce physics per bullet, all 15 rounds can be in flight at once | 15 rounds |
+| **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.96s (~2.4 cells) | 3 shots |
+| **Homing Missile** | Travels straight and fast for 1 second, then slows down and curves toward the nearest OTHER tank at a capped turn rate — the missile's own shooter is never a valid target | 1 shot |
+| **Shield** | Not a weapon: picking it up arms a charge as a buff layered on top of whatever weapon (and remaining ammo) is currently equipped, rather than replacing it — the bubble doesn't activate on pickup. The NEXT time fire is pressed, the charge pops into a visible bubble for 10 seconds, whether or not that press's actual shot goes through. While active, it deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs mine shrapnel and an enemy's laser beam outright (the wearer's own laser still hits them; see the Laser row) | — |
+| **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner. Stepping on a hidden mine reveals it again (with a sound); stepping back OFF it lights a 0.5s fuse rather than detonating outright, then explodes into 8 shrapnel pieces sprayed outward (with a sound) — the mine itself never hurts anyone, only its shrapnel does, and shrapnel does not reflect off walls (it stops dead on contact, unlike a bullet). The trigger radius is a full 12px (matching the mine's drawn black body, not just its small red center marker). The mine's dropper gets one free departure (stepping off doesn't light the fuse the first time) — after that grace is used, stepping off again detonates it on them exactly like anyone else | 3 mines |
+| **Laser** | A fast (not instant) beam that bounces off every wall (interior AND the outer boundary) with the same mirror-angle reflection as the cannon, up to 6 bounces. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped, tracing the beam's real bounce path — both an aiming aid and a telegraph. Firing locks that path immediately, but the beam then visibly travels it at high speed rather than resolving on the spot, giving whoever's in the way a brief window to break line of sight before it actually reaches them | 1 shot |
 
 **Design rule:** every power-up trades extra power for a real risk
 (self-damage potential, limited range, low ammo, or setup delay). Preserve
-this balance in any future power-up added.
+this balance in any future power-up added. Which drawback each one carries:
+gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
+yourself; shotgun — useless past ~2 cells; missile — slow once it's
+actually homing, giving its target time to react; shield — purely
+defensive (no offense of its own, and your own laser still gets through),
+plus it does nothing until you next press fire — pick one up mid-danger
+and you're still exposed until you actually shoot; mine — invisible to
+you too, and its shrapnel doesn't care who dropped it once your one grace
+departure is spent; laser — just 1 shot,
+telegraphed by the aim line, and its brief travel time is a real (if
+narrow) dodge window.
+
+**Ammo/rate overrides:** a picked-up weapon may override the tank's own
+firing limits (in-flight bullet cap, cooldown, and the hold-to-repeat
+interval) for as long as it's equipped; on revert the tank returns to its
+own base limits, which differ for players and AI (sections 3.2 and 5).
+
+**AI and crates:** Easy AI does not seek crates out — it picks up whatever
+it happens to drive over and then uses that weapon through the same firing
+path players use. Actively contesting pickups is a Medium/Hard trait (see
+section 5) and isn't built yet.
 
 ---
 
 ## 5. AI Opponents — 3 Difficulty Tiers, 0–3 Simultaneous
 
 0–3 AI tanks per match, each independently set to Easy/Medium/Hard on the
-Mission Briefing screen (see section 6). Currently only Easy is
-implemented — Medium and Hard are selectable in the UI but disabled
-("Coming soon") until built, same treatment as any other not-yet-built
-feature in this doc.
+Mission Briefing screen (see section 6). All three tiers are implemented.
+
+Every tier is one class in `src/ai/`, and every tier shares the same
+architecture — a `seek / cornerTurn / blockedTurn / attempting /
+reversing` state machine driving `{ forward, backward, left, right }` +
+`wantsToFire`, exactly the shape a human player's input produces (see
+section 7), so an AI tank runs through the identical `Tank.update()` and
+firing path a player's tank does. **Movement always steers toward a
+pathfound waypoint, at every tier, without exception** — never a raw
+line-of-sight straight line at the target, for the reason spelled out in
+"Movement direction" below. A tier is defined by *how far it scales up*
+the axes in the ladder table (section 5.1), not by inventing its own
+navigation: `MediumAI` and `HardAI` both literally extend `EasyAI`
+(`src/ai/medium.js`, `src/ai/hard.js`), inheriting its pathfinding,
+hallway driving, corner pivots, and obstacle recovery untouched, so that
+guarantee is structural rather than a convention a later edit could
+quietly break. A navigation fix in Easy is therefore automatically a
+navigation fix in every tier above it.
 
 **Targeting (FFA):** in a free-for-all match (see section 1 and section 9)
 there is no player-team/AI-team distinction, and a bullet hurts whatever
@@ -120,21 +162,89 @@ fire is ON (section 9.2), so a stray bounce can still destroy a teammate.
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
 | **Easy** | "Hallway driving": commits to a straight heading down a whole corridor at a time, stops and pivots cleanly at corners, and only stops/turns/reverses when something the route didn't anticipate blocks it | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-targeting which opponent only — pathing/waypoint updates, obstacle response, corner turns, and firing are all immediate, see notes) | Ignores ~half the time |
-| **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
-| **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
+| **Medium** | Everything Easy does, plus dodging: sidesteps out of the path of an incoming bullet that's on a collision course nearby | Only takes clean shots — a ~9° fire window vs Easy's ~15° | None (direct line of sight only) | ~0.4s (re-targeting which opponent only, same as Easy) | Goes for it if closer to AI than player |
+| **Hard** | Everything Medium does, plus flanking: pathfinds to an approach cell off the target's facing instead of straight at it, and its dodge is bounce-aware (see 5.1) | Leads the target by its velocity, and actively turns to line up a shot | Multi-wall, calculated — traces candidate ricochet paths and rejects any that would hit itself first | ~0.1s (re-targeting which opponent only, same cadence as the others) | Aggressively contests pickups, evasive strafing |
 
-**Note:** Easy now also pathfinds around walls (added to fix it getting stuck leaning
-on a wall with no route to its target), so "pathfinding" no longer distinguishes
-Medium/Hard from Easy. When Medium is built, it needs a different defining trait
-than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
-aiming, or actually using bank shots — to stay meaningfully harder than Easy.
+**Note:** Easy also pathfinds around walls (added to fix it getting stuck leaning on
+a wall with no route to its target), so "pathfinding" doesn't distinguish any tier
+from any other — every tier navigates by the same pathfound waypoints. The axes that
+actually separate the tiers are in section 5.1.
+
+**Note:** the Power-up behavior column is aspirational for *every* tier — crates
+and weapons (section 4) aren't built yet, so no tier currently reacts to them at
+all. Those cells describe the intent for when section 4 ships.
+
+### 5.1 AI difficulty ladder
+
+Every tier shares one brain and one navigation system: `MediumAI` and `HardAI` both
+extend `EasyAI` (`src/ai/medium.js`, `src/ai/hard.js`), inheriting its pathfinding,
+hallway driving, corner pivots and obstacle recovery untouched, and turning up a
+small number of dials. A navigation fix in Easy is therefore automatically a
+navigation fix in every tier above it. **Adding a tier means adding a row here and
+a factory to `AI_TIERS` in `src/main.js`** — that table maps a tier to its brain
+class, and any tier missing from it stays greyed out on the Mission Briefing screen.
+Ammo limits are normally owned by the AI class's own constructor (`EasyAI`,
+`HardAI`) so a tier's numbers live in one place; `MediumAI` deliberately doesn't
+declare its own (see its file header) so its numbers are listed in
+`AI_AMMO_OVERRIDES` in `src/main.js` instead — either approach is fine, a tier just
+needs to end up in exactly one of the two tables.
+
+| Axis | Easy | Medium | Hard |
+|---|---|---|---|
+| **Fire trigger** | Fires the instant it has a clean shot (0s) | Same — 0s | **0.15s holding a valid firing solution** (not just a clean shot — see below) |
+| **Fire window** | ~15° (0.26 rad) — takes any shot roughly lined up | ~9° (0.16 rad) — holds out for a clean shot | ~5° (0.09 rad) — tightest, since Hard actively turns onto its solution first |
+| **Ammo** | 1 bullet in flight + 1s cooldown | 2 bullets in flight + 0.6s cooldown | **3 bullets in flight + 0.3s cooldown** |
+| **Re-target cadence** | ~0.8s | ~0.4s | **~0.1s** |
+| **Dodging** | None | Sidesteps a bullet on a collision course within 180px | **Bounce-aware**: predicts the bullet's full ricochet path (not just its current straight line) before deciding it's safe |
+| **Bank shots** | None | None | **Multi-wall, calculated**: traces candidate firing angles' ricochet paths and rejects any that would hit itself first |
+| **Aim prediction** | None | None — see below | **Leads the target by its velocity, and turns its hull to line the barrel up** — the turret-less limitation below no longer applies once the AI is willing to stop and aim |
+| **Flanking** | None | None | **Pathfinds to an approach cell off the target's current facing** instead of straight at it (see below) |
+
+Measured over 500 headless Medium-vs-Easy matches, Medium wins ~60% (an even matchup
+is ~50%) and converts 0.59 kills per shot against Easy's 0.43. Measured over 120
+headless Hard-vs-Easy matches, Hard wins ~82% (98–20–2 draws); mirror matches (Hard
+vs Hard) split roughly even, confirming no positional bias in the test harness.
+
+**Why Medium has no predictive aim, and why Hard does.** Leading the target by its
+current velocity was specced as Medium's aim upgrade, built, measured, and cut. It
+gained nothing even against a target driving in a dead straight line (95.0% vs 95.5%
+hit rate) and lost badly against one that stops and pivots the way these AI do (41.5%
+vs 56.8%). The reason is structural: **these tanks have no turret**, so a shot always
+leaves along the tank's current driving heading (section 3.1, 3.2) — for a tier that
+never stops to aim, a predicted lead point can only change *when* it fires, never
+where the bullet goes, and firing at moments when the barrel isn't on the target is
+strictly worse. Compounding it, bullets travel only ~15% faster than tanks (160 vs
+140 px/s, section 3.2), so the lead needed is enormous and any prediction error is
+large. Hard is where prediction starts paying off, because Hard is willing to stop
+moving and turn its hull onto a solution first (its aim-hold state, below) — once
+that's true, leading the target is a straightforward win rather than a wash.
+
+**Dodging (Medium):** watches every bullet in flight, and treats one as a threat when
+it's within 180px, would arrive within 1s, would pass within roughly a tank's radius,
+and has clear line of sight (a bullet with a wall in between will change direction
+before it arrives — reacting to *bounce* paths is Hard's job, not Medium's). It then
+sidesteps: since tanks can't strafe (section 3.1), it drives whichever of forward or
+backward carries it sideways off the bullet's line, rotating toward straight-sideways
+as it goes, and it checks there's room that way before committing rather than reversing
+into a wall. Dodging pre-empts normal navigation for as long as the threat lasts (plus
+a 0.25s minimum so a single frame of threat can't cause a twitch), then drops its
+committed waypoint so the route is re-planned from wherever it ended up. A hard 1.5s
+cap plus a 0.6s cooldown guarantees navigation always gets control back, so bullets
+ricocheting nearby can never lock the AI into dodging forever.
 
 **Firing trigger (Easy):** fires instantly (0s delay) the moment its current target is
 aimed-at and directly visible (unobstructed line of sight) — not a random chance, and
-no longer a 0.5s aim-hold (that felt too slow to get an opening shot off). "Accuracy"
-for Easy is effectively retired until a real aim-miss mechanic exists; Medium/Hard
-should define their own accuracy behavior when built. Still subject to the
-1-bullet/1s-cooldown ammo limit below.
+no longer a 0.5s aim-hold (that felt too slow to get an opening shot off). Still
+subject to the ammo limits below.
+
+**"Accuracy" as an axis:** there is no random aim-miss mechanic in this game, so the
+percentages in the tier table above are descriptive, not literal roll chances. What
+actually varies per tier is how tight a shot has to be lined up before the AI takes it
+(the fire window in section 5.1). Medium fires no less reliably than Easy — it just
+declines the sloppy shots Easy takes. Note that a tier *cannot* be made harder by
+adding an aim-hold delay: Easy already fires at 0s, so any hold makes a tier slower on
+the trigger than the one below it. Medium originally specced a 0.3s hold and it
+measured as a straight downgrade (41% win rate vs Easy, where an even matchup is 50%).
 
 **Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) and its
 pathfound waypoint both react every frame, not on the ~0.8s reaction-delay cadence —
@@ -178,10 +288,89 @@ obstacle, or a maze-wall collision push) could otherwise leave it committed to a
 waypoint on the other side of a wall it could never cross no matter how it turned,
 which read as the AI "getting stuck" pressed against a wall.
 
-**Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
-cooldown after it's gone before firing again — stricter than the player's 5-bullet,
-no-cooldown base cannon from section 3.2. Keeps the AI from flooding the maze with
-bullets at close range.
+**Firing trigger (Hard):** needs 0.15s of continuously holding a valid *firing
+solution* before the shot goes out — not merely 0.15s of the target being visible.
+A firing solution is either a direct lead shot or a bank shot (below), and pointing
+at a bare wall is a perfectly legitimate thing for Hard to be doing. The brief hold
+is what buys the accuracy: Easy fires the instant it sees you and hits where you
+were, Hard takes an extra beat and hits where you're going.
+
+**Aim — leading (Hard):** aims at where the target will be when the bullet arrives,
+derived from the target's own velocity. Flight time depends on the lead point and
+the lead point depends on flight time, so it solves that fixed point iteratively. A
+predicted point behind a wall is discarded (the target can't actually get there in a
+straight line), falling back to its present position.
+
+**Aim — bank shots (Hard):** with no direct line, Hard sweeps candidate firing
+angles and traces each one's ricochet path through the maze, using the *same*
+reflection rule the real bullet obeys (the wall's own orientation picks the mirror
+axis — see section 3.2 and `Maze.moveWithBounce`), keeping the cheapest angle whose
+path lands on the target within 3 bounces. Two constraints keep it honest:
+- Traced shots are fired from where the muzzle *will* be once the tank has turned
+  onto that angle, not from where the barrel points now — the barrel swings with the
+  turret, and tracing from the current tip put the shot's origin a whole barrel
+  length off.
+- A candidate whose path would cross the AI's *own* hull before reaching the target
+  is rejected outright. Self-kill by own ricochet is a real mechanic (section 3.2),
+  so an AI that calculates bank shots has to calculate its way out of suiciding too.
+
+**Dodging (Hard):** predicts each nearby bullet's flight forward — bounces included,
+stepped through the maze's own bounce solver so the prediction can't disagree with
+what the bullet actually does — and, if one would hit, commits a short burst
+forward or backward out of its path. Because a tank only drives along its own facing
+(section 3.1), a bullet coming straight down the corridor it's pointed along is
+genuinely undodgeable by driving; in that case Hard holds its route and shoots back
+rather than flailing. It ignores its own just-fired bullet until a bounce sends it
+back.
+
+**Flanking (Hard):** Hard does *not* pathfind to the target's cell. It pathfinds to
+a cell 1–3 steps away from the target, scored on how far around the target's back it
+sits (bearing from the target to that cell vs. the way the target is currently
+facing) against what the detour costs in travel — so it comes at you from behind or
+the side instead of driving straight down your barrel. Inside 2 cells it drops the
+manoeuvring and just closes in. Crucially this changes only the *destination handed
+to the pathfinder*: run compression into hallway waypoints, corner pivots, and
+off-path replanning are all the same code Easy runs, so flanking can never degrade
+into raw line-of-sight steering.
+
+**Aim-hold (Hard):** when a firing solution exists but the tank isn't pointed at it,
+Hard stops and pivots onto it, then holds still through the 0.15s fire trigger — its
+own route-following steering would otherwise drag the barrel back off the solution
+before the shot left. Both this and dodging are extra states in the same state
+machine, and both can only be entered from `seek`, so neither can interrupt an
+obstacle-recovery sequence part-way through and strand the tank. Both are capped by
+a timeout and followed by a forced stretch of normal movement, so Hard can't freeze
+in place or dodge-chatter. The hold is also gated on the shot being *takeable right
+now* — not on cooldown, not at the 3-bullet cap, barrel not jammed against a wall —
+because standing still to aim a shot that physically cannot leave the barrel is all
+downside: the tank is a stationary target and nothing comes of it.
+
+**Arriving on top of the target (Hard):** the pathfinder has nothing to route once
+the tank is already standing in its destination cell — the path is one cell long, so
+the waypoint is the tank's *own* cell centre, and steering at that produces a
+meaningless heading that walks the tank into the nearest wall and leaves it churning
+through obstacle recovery. On arrival Hard therefore steers at the real target
+instead, and stops driving entirely once the steer point is underfoot, letting the
+firing logic finish the job. This is the single case where Hard aims at a target
+rather than a pathfound waypoint, and it is safe precisely because it is confined to
+one cell — the pathfinder has already established there is no wall in between. Every
+route longer than that still belongs to the pathfinder.
+
+**Giving up on a flank (Hard):** if the shared stuck detector concludes the current
+route isn't working and forces a fresh plan, Hard also discards the flanking cell it
+was heading for and refuses to re-pick it until the target moves. The flanking cell
+is what proved unreachable, so replanning toward it again just retries the same
+losing approach against the same corner.
+
+**Ammo (per tier):** every AI tier is stricter than the player's 5-bullet,
+no-cooldown base cannon from section 3.2 — that's what keeps the AI from flooding
+the maze with bullets at close range, and the exact limit is one of the difficulty
+dials (see section 5.1). Easy fires 1 bullet at a time with a ~1s cooldown; Medium
+fires 2 at a time with a 0.6s cooldown; Hard fires up to 3 at a time with a 0.3s
+cooldown. Easy and Hard each own their numbers in their AI class's own constructor;
+Medium's live in the `AI_AMMO_OVERRIDES` table in `src/main.js` instead (see the
+note at the top of section 5.1) — applied to each Tank when the match starts either
+way.
 
 ---
 
@@ -199,8 +388,8 @@ bullets at close range.
    - Every active tank slot, player or AI, also shows an editable name field
      (see section 9.4) — click it and type to rename that tank.
    - Enemy Forces: 0P / 1 / 2 / 3 toggle picks how many AI tanks. Each
-     active AI slot independently picks Easy/Medium/Hard (Medium/Hard
-     disabled — "Coming soon," same as everywhere else in this doc).
+     active AI slot independently picks Easy/Medium/Hard (all three tiers
+     built and selectable).
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
    - Two battle buttons, in place of the single "Battle!" this screen used
@@ -232,8 +421,17 @@ bullets at close range.
 4. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
    players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
    HUD (current weapon icon + ammo count per player — see HUD notes below
-   for the multi-player case). In a team match each tank also flies a small
-   team-colored flag (section 9.2).
+   for the multi-player case). Per player the HUD shows a weapon icon, the
+   weapon name, and either shots remaining (a picked-up weapon) or bullets
+   in flight (the base cannon, which never runs out), plus 🛡️(ready) while
+   a shield charge is held but not yet activated, or a 🛡️ countdown once
+   it's actually up. Weapon icons are small procedurally-drawn shapes
+   (one per weapon — three barrels for gatling, a pellet fan for shotgun,
+   a finned dart for missile, a badge outline for shield, a spiked ball
+   for mine, a lightning bolt for laser) standing in for the real `icon_*`
+   sprites until those land; the same icon draws in the HUD and on a
+   map crate, which also shows the weapon's name as a readable label. In a
+   team match each tank also flies a small team-colored flag (section 9.2).
 5. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
    player, red if the winner is an AI tank, the winning team's own color if
    a team won; "Draw" in the rare simultaneous-kill case — see section 9),
@@ -300,8 +498,19 @@ starts.
 ## 8. Audio
 
 Light chiptune background loop during matches. SFX: cannon fire, wall
-bounce ping, explosion, power-up pickup chime, victory/defeat jingles.
-Mute toggle in pause menu.
+bounce ping, explosion, victory/defeat jingles — still unbuilt. Mute
+toggle in pause menu — still unbuilt.
+
+**Power-up SFX (built):** three distinct synthesized cues per
+GAME_SPEC.md section 4's crate lifecycle — a soft ambient chime when a
+crate **appears**, a brighter chime when a tank **equips** one (drives
+over it), and a weapon-specific sound the instant a tank **uses** one
+(fires it): a short tick for the gatling, a noise-burst blast for the
+shotgun, a rising whoosh for the missile launch, a low thunk for the mine
+drop, and a rising sweep timed to the laser's charge for the laser. The
+base cannon has no "use" sound — it isn't a power-up. The shield has no
+"use" sound either — equipping it is its only action, already covered by
+the equip chime.
 
 ---
 
@@ -312,13 +521,16 @@ alternative picked on the Mission Briefing screen (section 9.2).
 
 In a free-for-all there is no team distinction between players and AI
 (see section 5's Targeting note); a bullet destroys whatever tank it
-touches regardless of who fired it. A destroyed tank is removed from play
-but the match continues; it ends when exactly one tank remains, and that
-tank's controller (a specific player, or a specific AI) wins. (Edge case:
-if the last two-or-more tanks are destroyed in the same instant — e.g. a
-mutual point-blank kill — treat it as a draw; no player/AI is declared the
-winner.) Result Screen shows within 1 second of the last death animation
-finishing.
+touches regardless of who fired it. A destroyed tank plays a brief
+explosion animation where it died and is removed from play, but the match
+continues; it ends when exactly one tank remains, and that tank's
+controller (a specific player, or a specific AI) wins. (Edge case: if the
+last two-or-more tanks are destroyed in the same instant — e.g. a mutual
+point-blank kill — treat it as a draw; no player/AI is declared the
+winner.) Once the match-ending kill happens, the battlefield freezes
+exactly as it stood at that moment (only the explosion keeps animating)
+for 2 seconds before the Result Screen appears, so the final death reads
+clearly instead of cutting away instantly.
 
 ### 9.1 Session Stats (Win/Kill/Death tallies)
 

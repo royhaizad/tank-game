@@ -31,6 +31,26 @@ const config = {
   teamNames: { 1: '', 2: '' }
 };
 
+// AI difficulty ladder, per GAME_SPEC.md section 5: one factory per built
+// tier. A tier missing from this table is one that isn't built yet — the
+// Mission Briefing greys those out (see menu.js) and handleBriefingClick
+// refuses to select them.
+const AI_TIERS = {
+  easy: () => new EasyAI(),
+  medium: () => new MediumAI(),
+  hard: () => new HardAI()
+};
+
+// Ammo limits (maxActiveBullets / fireCooldownDuration — see Tank fields)
+// are normally owned by the AI class's own constructor (see EasyAI,
+// HardAI) so each tier's numbers live in exactly one place. MediumAI
+// deliberately doesn't declare its own (see its file header: ammo is "a
+// property of the Tank, not the brain"), so its numbers are overridden
+// here instead, per GAME_SPEC.md section 5.
+const AI_AMMO_OVERRIDES = {
+  medium: { maxActiveBullets: 2, fireCooldownDuration: 0.6 }
+};
+
 let winner = null; // { label, kind } of whoever's left standing, or null for a draw
 let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitle', while screen === 'pauseConfirm'
 let awaitingRebind = null; // { playerIndex, action } while waiting for a keypress, on briefing or controls screens
@@ -48,7 +68,17 @@ const modalAwardsReveal = { index: 0, timer: 0 };
 const AWARD_REVEAL_HOLD = 1.5; // s an award holds before auto-advancing to the next
 const AWARD_FADE_DURATION = 0.3; // s the newest award takes to fade in
 
-let maze, matchTanks, bullets;
+// Live match state. crates/mines/beams/shrapnel are the power-up side of
+// it (GAME_SPEC.md section 4); each is rebuilt fresh every match, per
+// section 10's "power-up state fully reset every new match".
+let maze, matchTanks, bullets, crates, mines, beams, shrapnel, explosions;
+
+// Seconds left before the match actually switches to the Result screen,
+// once a win/draw is detected — null while the match is still live. Lets
+// the last kill's explosion play out instead of cutting straight to
+// Result.
+const RESULT_DELAY = 2; // s
+let matchEndTimer = null;
 
 // Session-only Kill/Death/Win tallies per HANDOFF.md "Session B" decisions:
 // in-session tallies (not a ranking system), keyed by slot label (P1/AI1/...)
@@ -80,8 +110,6 @@ function resetStats() {
   for (const teamId in teamStats) delete teamStats[teamId];
 }
 
-const PLAYER_AUTO_FIRE_INTERVAL = 0.5; // s, between auto-fired shots while the fire key is held
-
 function activeBulletCount(tank) {
   return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
 }
@@ -107,29 +135,98 @@ function startMatch() {
 
   for (let i = 0; i < config.aiCount; i++) {
     const spawn = spawnPoints[spawnIndex++];
+    const tierId = config.aiDifficulties[i];
+    const makeAI = AI_TIERS[tierId] || AI_TIERS.easy;
+    const ai = makeAI();
+    const ammoOverride = AI_AMMO_OVERRIDES[tierId];
     const tank = new Tank(spawn.x, spawn.y, Menu.AI_COLORS[i]);
-    tank.maxActiveBullets = 1; // AI ammo override, per GAME_SPEC.md section 5
-    tank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
+    // AI ammo override, per GAME_SPEC.md section 5 — each tier's own limits.
+    tank.maxActiveBullets = ammoOverride ? ammoOverride.maxActiveBullets : ai.maxActiveBullets;
+    tank.fireCooldownDuration = ammoOverride ? ammoOverride.fireCooldownDuration : ai.fireCooldownDuration;
     const label = `AI${i + 1}`;
-    matchTanks.push({ tank, kind: 'ai', label, ai: new EasyAI(), team: teamFor(label) });
+    matchTanks.push({ tank, kind: 'ai', label, ai, team: teamFor(label) });
   }
 
   matchTanks.forEach((entry) => ensureStats(entry.label));
   if (config.teamMode) Menu.TEAM_IDS.forEach((teamId) => ensureTeamStats(teamId));
 
   bullets = [];
+  crates = new CrateField(maze);
+  mines = new MineField();
+  beams = [];
+  shrapnel = [];
+  explosions = [];
+  matchEndTimer = null;
   winner = null;
   screen = 'match';
 }
 
-function fireIfPossible(tank, angleSource) {
+// Single entry point for "this tank pressed fire" — what that actually
+// spawns (bullet, pellet spread, mine, laser beam) is the equipped
+// weapon's business, see WeaponFire.fire in weapon.js.
+// clickWhenBlocked: play the rejected-fire click when a wall is in the
+// way. Players get that feedback; AI tanks just silently don't fire.
+function tryFire(tank, clickWhenBlocked) {
+  // A held shield charge activates the instant fire is pressed, whether
+  // or not the actual weapon shot below goes through — pressing shoot is
+  // what "uses" it, per GAME_SPEC.md section 4.
+  if (tank.tryActivateShieldCharge()) AudioEngine.playShieldActivate();
+
+  if (WeaponFire.needsClearBarrel(tank) && maze.isBarrelBlocked(tank)) {
+    if (clickWhenBlocked) AudioEngine.playEmptyFireClick();
+    return;
+  }
   if (!tank.canFire(activeBulletCount(tank))) return;
-  const tip = tank.getBarrelTip();
-  bullets.push(new Bullet(tip.x, tip.y, angleSource.angle, tank));
-  tank.cooldownRemaining = tank.fireCooldownDuration;
+
+  WeaponFire.fire(tank, maze, bullets, mines, beams);
+  tank.cooldownRemaining = tank.effectiveFireCooldown();
+}
+
+// Removes a tank from play, spawns its explosion, and books the stats,
+// per GAME_SPEC.md sections 9.1 and 9.2. Shared by every lethal thing in a
+// match (bullets, mine shrapnel, laser beams) so a kill — and a team kill,
+// and a self-kill — is credited the same way no matter what caused it. A
+// self-kill counts as a death but never as a kill against yourself
+// (section 3.2).
+function destroyTank(entry, ownerTank) {
+  if (entry.tank.destroyed) return;
+
+  entry.tank.destroyed = true;
+  explosions.push(new Explosion(entry.tank.x, entry.tank.y));
+  ensureStats(entry.label).deaths++;
+  if (entry.team) ensureTeamStats(entry.team).deaths++;
+
+  if (ownerTank === entry.tank) {
+    ensureStats(entry.label).selfKills++;
+  } else if (ownerTank) {
+    const killer = matchTanks.find((other) => other.tank === ownerTank);
+    if (killer) {
+      ensureStats(killer.label).kills++;
+      if (killer.team) ensureTeamStats(killer.team).kills++;
+      // Friendly fire is ON in team mode (GAME_SPEC.md 9.2), so this is a
+      // real and reasonably common event, not a defensive impossibility.
+      if (killer.team && killer.team === entry.team) ensureStats(killer.label).teamKills++;
+    }
+  }
 }
 
 function updateMatch(dt) {
+  // Once a win/draw is detected, freeze the battlefield exactly as it
+  // stood at that moment — only the explosion(s) keep animating — for
+  // RESULT_DELAY seconds before actually switching to the Result screen.
+  if (matchEndTimer !== null) {
+    explosions.forEach((explosion) => explosion.update(dt));
+    explosions = explosions.filter((explosion) => explosion.alive);
+
+    matchEndTimer -= dt;
+    if (matchEndTimer <= 0) {
+      matchEndTimer = null;
+      screen = 'result';
+      resetReveal(resultAwardsReveal, resultAwardsList().length);
+    }
+    return;
+  }
+
   matchTanks.forEach((entry) => {
     if (entry.tank.destroyed) return;
 
@@ -144,22 +241,17 @@ function updateMatch(dt) {
       entry.tank.update(dt, actions);
       maze.resolveTankCollision(entry.tank);
 
+      // Hold-to-repeat pacing comes from the equipped weapon: 0.5s for the
+      // base cannon (GAME_SPEC.md section 3.2), 0.09s for the gatling, and
+      // Infinity for the one-shot weapons so they need a fresh keypress.
       if (Input.justPressed[bindings.fire]) {
-        if (maze.isBarrelBlocked(entry.tank)) {
-          AudioEngine.playEmptyFireClick();
-        } else {
-          fireIfPossible(entry.tank, entry.tank);
-        }
-        entry.autoFireTimer = PLAYER_AUTO_FIRE_INTERVAL;
+        tryFire(entry.tank, true);
+        entry.autoFireTimer = entry.tank.autoFireInterval();
       } else if (Input.keys[bindings.fire]) {
         entry.autoFireTimer -= dt;
         if (entry.autoFireTimer <= 0) {
-          if (maze.isBarrelBlocked(entry.tank)) {
-            AudioEngine.playEmptyFireClick();
-          } else {
-            fireIfPossible(entry.tank, entry.tank);
-          }
-          entry.autoFireTimer = PLAYER_AUTO_FIRE_INTERVAL;
+          tryFire(entry.tank, true);
+          entry.autoFireTimer = entry.tank.autoFireInterval();
         }
       } else {
         entry.autoFireTimer = 0;
@@ -172,54 +264,96 @@ function updateMatch(dt) {
       const opponents = matchTanks
         .filter((other) => other !== entry && !(config.teamMode && other.team === entry.team))
         .map((other) => other.tank);
-      const decision = entry.ai.update(dt, entry.tank, opponents, maze);
+      // Bullets in flight are passed to every tier uniformly; only tiers
+      // that dodge (Medium and up) actually look at them.
+      const decision = entry.ai.update(dt, entry.tank, opponents, maze, bullets);
       entry.tank.update(dt, decision.keys);
       maze.resolveTankCollision(entry.tank);
 
-      if (decision.wantsToFire && !maze.isBarrelBlocked(entry.tank)) {
-        fireIfPossible(entry.tank, entry.tank);
-      }
+      if (decision.wantsToFire) tryFire(entry.tank, false);
     }
   });
 
-  bullets.forEach((bullet) => bullet.update(dt, maze));
+  // Power-ups, per GAME_SPEC.md section 4. Crates handle their own spawn
+  // cadence and pickups; laser beams report who they caught so those
+  // kills go through the same destroyTank() path as bullet kills.
+  const crateEvents = crates.update(dt, matchTanks);
+  if (crateEvents.spawned) AudioEngine.playPowerupSpawn();
+  if (crateEvents.pickups.length > 0) AudioEngine.playPowerupEquip();
+
+  // Mines no longer kill on contact — stepping on one reveals it, and
+  // stepping back off it detonates it into shrapnel (see mine.js), which
+  // is the only thing that actually kills anyone.
+  const mineEvents = mines.update(dt, matchTanks);
+  if (mineEvents.revealed) AudioEngine.playMineReveal();
+  if (mineEvents.exploded) AudioEngine.playMineExplode();
+  shrapnel.push(...mineEvents.shrapnel);
+
+  beams.forEach((beam) => {
+    beam.update(dt, matchTanks);
+    beam.pendingHits.forEach((victim) => destroyTank(victim, beam.owner));
+    beam.pendingHits = [];
+  });
+  beams = beams.filter((beam) => beam.alive);
+
+  // matchTanks goes along for the homing missile, which needs every tank's
+  // position to pick the nearest one (see Bullet._steerTowardNearestTank).
+  bullets.forEach((bullet) => bullet.update(dt, maze, matchTanks));
+
+  shrapnel.forEach((piece) => piece.update(dt, maze));
+  shrapnel.forEach((piece) => {
+    matchTanks.forEach((entry) => {
+      if (!piece.alive || entry.tank.destroyed) return;
+      const dx = piece.x - entry.tank.x;
+      const dy = piece.y - entry.tank.y;
+
+      // A shield absorbs shrapnel outright at the bubble's edge — shrapnel
+      // doesn't bounce off anything (per GAME_SPEC.md section 4), so unlike
+      // a deflected bullet it's simply consumed rather than reflected away.
+      const shielded = entry.tank.hasShield();
+      const hitDistance = piece.radius + (shielded ? entry.tank.shieldRadius : entry.tank.radius);
+      if (dx * dx + dy * dy > hitDistance * hitDistance) return;
+
+      piece.alive = false;
+      if (!shielded) destroyTank(entry, piece.owner);
+    });
+  });
+  shrapnel = shrapnel.filter((piece) => piece.alive);
 
   // Per GAME_SPEC.md sections 9 and 9.2: a bullet destroys whatever tank it
   // touches, regardless of who fired it, who's driving either, or which
   // team they're on — friendly fire is ON in team mode, so this pass is
   // deliberately identical in both match types.
   bullets.forEach((bullet) => {
-    if (!bullet.alive) return;
     matchTanks.forEach((entry) => {
-      if (entry.tank.destroyed) return;
+      // A bullet is consumed by whatever it destroys, so once it's spent
+      // it can't go on to hit a second tank later in the same pass.
+      if (!bullet.alive || entry.tank.destroyed) return;
+
       const dx = bullet.x - entry.tank.x;
       const dy = bullet.y - entry.tank.y;
-      const hitDistance = bullet.radius + entry.tank.radius;
-      if (dx * dx + dy * dy <= hitDistance * hitDistance) {
-        entry.tank.destroyed = true;
-        bullet.alive = false;
-        ensureStats(entry.label).deaths++;
-        if (entry.team) ensureTeamStats(entry.team).deaths++;
 
-        // Self-kill via own ricochet is intentional (GAME_SPEC.md section
-        // 3.2) but doesn't award the shooter a kill against themselves.
-        if (bullet.owner === entry.tank) {
-          ensureStats(entry.label).selfKills++;
-        } else {
-          const killer = matchTanks.find((other) => other.tank === bullet.owner);
-          if (killer) {
-            ensureStats(killer.label).kills++;
-            if (killer.team) ensureTeamStats(killer.team).kills++;
-            // Friendly fire is ON (GAME_SPEC.md 9.2), so this is a real and
-            // reasonably common event, not a defensive impossibility.
-            if (killer.team && killer.team === entry.team) ensureStats(killer.label).teamKills++;
-          }
-        }
+      // A shield deflects ANY bullet off the bubble surface, including its
+      // own wearer's returning ricochet (GAME_SPEC.md section 4) — a real
+      // mirror, not just an enemy-only ward.
+      const shielded = entry.tank.hasShield();
+      const hitDistance = bullet.radius + (shielded ? entry.tank.shieldRadius : entry.tank.radius);
+      if (dx * dx + dy * dy > hitDistance * hitDistance) return;
+
+      if (shielded) {
+        bullet.deflectOff(entry.tank);
+        return;
       }
+
+      bullet.alive = false;
+      destroyTank(entry, bullet.owner);
     });
   });
 
   bullets = bullets.filter((bullet) => bullet.alive);
+
+  explosions.forEach((explosion) => explosion.update(dt));
+  explosions = explosions.filter((explosion) => explosion.alive);
 
   const survivors = matchTanks.filter((entry) => !entry.tank.destroyed);
 
@@ -243,8 +377,7 @@ function updateMatch(dt) {
           .forEach((entry) => ensureStats(entry.label).wins++);
         ensureTeamStats(winner.team).wins++;
       }
-      screen = 'result';
-      resetReveal(resultAwardsReveal, resultAwardsList().length);
+      matchEndTimer = RESULT_DELAY;
     }
   } else if (survivors.length <= 1) {
     // winner.label is for display, so it's the custom name if there is one;
@@ -252,8 +385,7 @@ function updateMatch(dt) {
     const lastStanding = survivors[0];
     winner = lastStanding ? { label: Menu.displayName(config, lastStanding.label), kind: lastStanding.kind } : null;
     if (lastStanding) ensureStats(lastStanding.label).wins++;
-    screen = 'result';
-    resetReveal(resultAwardsReveal, resultAwardsList().length);
+    matchEndTimer = RESULT_DELAY;
   }
 }
 
@@ -282,9 +414,16 @@ function drawTeamFlag(ctx, tank, teamId) {
 
 function drawMatchScene() {
   maze.draw(ctx);
+  crates.draw(ctx);
+  mines.draw(ctx); // only the ones still inside their 1s visible window
 
   matchTanks.forEach((entry) => {
     if (entry.tank.destroyed) return;
+
+    // The laser's dotted aim line is drawn for everyone to see — it's half
+    // of the laser's drawback (GAME_SPEC.md section 4).
+    if (entry.tank.weapon === Weapons.LASER) LaserBeam.drawPreview(ctx, entry.tank, maze);
+
     entry.tank.draw(ctx);
     if (entry.team) drawTeamFlag(ctx, entry.tank, entry.team);
 
@@ -295,6 +434,9 @@ function drawMatchScene() {
   });
 
   bullets.forEach((bullet) => bullet.draw(ctx));
+  beams.forEach((beam) => beam.draw(ctx));
+  shrapnel.forEach((piece) => piece.draw(ctx));
+  explosions.forEach((explosion) => explosion.draw(ctx));
 
   const playerEntries = matchTanks.filter((entry) => entry.kind === 'player');
   hud.draw(ctx, canvas, playerEntries, activeBulletCount, stats, config);
@@ -484,7 +626,7 @@ function handleBriefingClick(clicked) {
     config.aiCount = count;
   } else if (clicked.startsWith('diff:')) {
     const [, aiIndex, tier] = clicked.split(':');
-    if (tier === 'easy') config.aiDifficulties[Number(aiIndex)] = tier;
+    if (AI_TIERS[tier]) config.aiDifficulties[Number(aiIndex)] = tier; // unbuilt tiers stay unselectable, per GAME_SPEC.md section 6
   } else if (clicked.startsWith('rebind:')) {
     const [, playerIndex, action] = clicked.split(':');
     editingName = null; // don't leave a name edit swallowing the rebind keystroke

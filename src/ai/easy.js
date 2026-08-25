@@ -41,6 +41,13 @@ class EasyAI {
     this.keys = { forward: false, backward: false, left: false, right: false };
     this.wantsToFire = false;
 
+    // Per-tier ammo limits, read by main.js startMatch and applied to this
+    // AI's Tank — stricter than the player's 5-bullet/no-cooldown base
+    // cannon, per GAME_SPEC.md section 5. Each tier owns its own numbers
+    // (see HardAI), so the ladder lives with the AI rather than in main.js.
+    this.maxActiveBullets = 1;
+    this.fireCooldownDuration = 1; // s
+
     // FFA: whichever other living tank is currently nearest by path
     // distance (see _nearestOpponent). Re-evaluated every reaction tick,
     // or immediately if the current target is destroyed.
