@@ -4,7 +4,7 @@ const ctx = canvas.getContext('2d');
 const menu = new Menu(canvas);
 const hud = new Hud();
 
-// 'title' | 'briefing' | 'match' | 'paused' | 'pauseConfirm' | 'controls' | 'result'
+// 'title' | 'briefing' | 'teamAssign' | 'match' | 'paused' | 'pauseConfirm' | 'controls' | 'result'
 let screen = 'title';
 
 // Mission Briefing config, per GAME_SPEC.md section 6.
@@ -13,15 +13,14 @@ const config = {
   aiCount: 1,
   aiDifficulties: ['easy', 'easy', 'easy'], // per AI slot; only the first aiCount are used
 
-  // 2-Team mode, per GAME_SPEC.md section 9.2. FFA (teamMode false) is the
-  // default and is untouched by any of this. Assignments are keyed by slot
-  // label like `stats` is, so they survive changing the player/AI counts,
-  // toggling back to FFA and returning, and coming back from a match.
-  // Default split is every human on Team A vs every AI on Team B; any tank
-  // can be moved to either team by hand on the Briefing screen, and uneven
-  // teams are allowed.
+  // Team mode, per GAME_SPEC.md section 9.2. All-vs-all (teamMode false) is
+  // the default and is untouched by any of this. Assignments are keyed by
+  // slot label like `stats` is, so they survive changing the player/AI
+  // counts, switching match type, and coming back from a match. Default
+  // split is every human on Team 1 vs every AI on Team 2; any tank can be
+  // dragged to either team on the Team Setup screen, uneven teams allowed.
   teamMode: false,
-  teams: { P1: 'A', P2: 'A', P3: 'A', AI1: 'B', AI2: 'B', AI3: 'B' }
+  teams: { P1: '1', P2: '1', P3: '1', AI1: '2', AI2: '2', AI3: '2' }
 };
 
 let winner = null; // { label, kind } of whoever's left standing, or null for a draw
@@ -61,10 +60,15 @@ function startMatch() {
   matchTanks = [];
   let spawnIndex = 0;
 
+  // `team` is '1'/'2' in team mode and null in all-vs-all, so every place
+  // that branches on teams can just check config.teamMode and read it.
+  const teamFor = (label) => (config.teamMode ? Menu.teamOf(config, label) : null);
+
   for (let i = 0; i < config.playerCount; i++) {
     const spawn = spawnPoints[spawnIndex++];
     const tank = new Tank(spawn.x, spawn.y, Menu.PLAYER_COLORS[i]);
-    matchTanks.push({ tank, kind: 'player', label: `P${i + 1}`, playerIndex: i, autoFireTimer: 0 });
+    const label = `P${i + 1}`;
+    matchTanks.push({ tank, kind: 'player', label, playerIndex: i, autoFireTimer: 0, team: teamFor(label) });
   }
 
   for (let i = 0; i < config.aiCount; i++) {
@@ -72,7 +76,8 @@ function startMatch() {
     const tank = new Tank(spawn.x, spawn.y, Menu.AI_COLORS[i]);
     tank.maxActiveBullets = 1; // AI ammo override, per GAME_SPEC.md section 5
     tank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
-    matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai: new EasyAI() });
+    const label = `AI${i + 1}`;
+    matchTanks.push({ tank, kind: 'ai', label, ai: new EasyAI(), team: teamFor(label) });
   }
 
   matchTanks.forEach((entry) => ensureStats(entry.label));
@@ -125,7 +130,13 @@ function updateMatch(dt) {
         entry.autoFireTimer = 0;
       }
     } else {
-      const opponents = matchTanks.filter((other) => other !== entry).map((other) => other.tank);
+      // In team mode an AI only ever *targets* enemies — but friendly fire
+      // is ON (GAME_SPEC.md 9.2), so a teammate it never aimed at can still
+      // be killed by its ricochet. That's handled in the collision pass
+      // below, which stays entirely team-blind.
+      const opponents = matchTanks
+        .filter((other) => other !== entry && !(config.teamMode && other.team === entry.team))
+        .map((other) => other.tank);
       const decision = entry.ai.update(dt, entry.tank, opponents, maze);
       entry.tank.update(dt, decision.keys);
       maze.resolveTankCollision(entry.tank);
@@ -138,8 +149,10 @@ function updateMatch(dt) {
 
   bullets.forEach((bullet) => bullet.update(dt, maze));
 
-  // Free-for-all, per GAME_SPEC.md section 9: a bullet destroys whatever
-  // tank it touches, regardless of who fired it or who's driving either.
+  // Per GAME_SPEC.md sections 9 and 9.2: a bullet destroys whatever tank it
+  // touches, regardless of who fired it, who's driving either, or which
+  // team they're on — friendly fire is ON in team mode, so this pass is
+  // deliberately identical in both match types.
   bullets.forEach((bullet) => {
     if (!bullet.alive) return;
     matchTanks.forEach((entry) => {
@@ -164,11 +177,52 @@ function updateMatch(dt) {
   bullets = bullets.filter((bullet) => bullet.alive);
 
   const survivors = matchTanks.filter((entry) => !entry.tank.destroyed);
-  if (survivors.length <= 1) {
+
+  if (config.teamMode) {
+    // Last team standing, per GAME_SPEC.md section 9.2 — the team-level
+    // equivalent of the all-vs-all rule below. Zero teams left means both
+    // were wiped in the same frame, which is a draw exactly as a mutual
+    // kill is in all-vs-all.
+    const teamsAlive = Menu.TEAM_IDS.filter((teamId) => survivors.some((entry) => entry.team === teamId));
+    if (teamsAlive.length <= 1) {
+      winner = teamsAlive.length === 1 ? { label: `Team ${teamsAlive[0]}`, kind: 'team', team: teamsAlive[0] } : null;
+      if (winner) {
+        // The win belongs to the team, so every member is credited —
+        // including ones destroyed along the way (GAME_SPEC.md 9.1).
+        matchTanks
+          .filter((entry) => entry.team === winner.team)
+          .forEach((entry) => ensureStats(entry.label).wins++);
+      }
+      screen = 'result';
+    }
+  } else if (survivors.length <= 1) {
     winner = survivors.length === 1 ? { label: survivors[0].label, kind: survivors[0].kind } : null;
     if (winner) ensureStats(winner.label).wins++;
     screen = 'result';
   }
+}
+
+// Small team flag planted on a tank, drawn as its own pass on top of the
+// tank rather than inside Tank.draw() — the tank sprite knows nothing about
+// teams, and the flag must stay upright while the tank rotates under it.
+// Team mode only; per GAME_SPEC.md section 9.2 the label itself stays white.
+function drawTeamFlag(ctx, tank, teamId) {
+  const poleX = tank.x + tank.radius - 2;
+  const poleTop = tank.y - tank.radius - 14;
+
+  ctx.fillStyle = '#2b2b2b';
+  ctx.fillRect(poleX, poleTop, 2, 14);
+
+  ctx.fillStyle = Menu.TEAM_COLORS[teamId];
+  ctx.beginPath();
+  ctx.moveTo(poleX + 2, poleTop);
+  ctx.lineTo(poleX + 12, poleTop + 4);
+  ctx.lineTo(poleX + 2, poleTop + 8);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#00000066';
+  ctx.stroke();
 }
 
 function drawMatchScene() {
@@ -177,6 +231,7 @@ function drawMatchScene() {
   matchTanks.forEach((entry) => {
     if (entry.tank.destroyed) return;
     entry.tank.draw(ctx);
+    if (entry.team) drawTeamFlag(ctx, entry.tank, entry.team);
 
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 10px sans-serif';
@@ -249,22 +304,39 @@ function handleBriefingClick(clicked) {
   } else if (clicked.startsWith('rebind:')) {
     const [, playerIndex, action] = clicked.split(':');
     awaitingRebind = { playerIndex: Number(playerIndex), action };
-  } else if (clicked.startsWith('mode:')) {
-    config.teamMode = clicked.split(':')[1] === 'team';
-  } else if (clicked.startsWith('team:')) {
-    // `team:<slotLabel>:<A|B>` — assignments are kept for every slot, even
-    // ones the current counts don't use, so they come back if the count does.
-    const [, slotLabel, teamId] = clicked.split(':');
-    config.teams[slotLabel] = teamId;
   } else if (clicked === 'briefingBack') {
     screen = 'title';
-  } else if (clicked === 'battle' && Menu.canStartMatch(config)) {
+  } else if (clicked === 'battleFfa' && config.playerCount + config.aiCount >= 2) {
+    config.teamMode = false;
     startMatch();
+  } else if (clicked === 'battleTeams' && config.playerCount + config.aiCount >= 2) {
+    // Straight to Team Setup — the split is fixed there, not here, so this
+    // doesn't check it. Battle on that screen is what enforces it.
+    config.teamMode = true;
+    screen = 'teamAssign';
   } else if (clicked === 'viewStats') {
     awaitingRebind = null; // don't leave a hidden rebind capturing keys behind the modal
     briefingStatsOpen = true;
   } else if (clicked === 'closeStats') {
     briefingStatsOpen = false;
+  }
+}
+
+// Team Setup screen, per GAME_SPEC.md section 9.2. A finished drag arrives
+// here as the same `team:<slot>:<teamId>` id a plain click on a tank
+// produces, so dropping and clicking need no separate handling.
+function handleTeamAssignClick(clicked) {
+  if (clicked.startsWith('mode:')) {
+    config.teamMode = clicked.split(':')[1] === 'team';
+  } else if (clicked.startsWith('team:')) {
+    // Assignments are kept for every slot, even ones the current counts
+    // don't use, so they come back if the count does.
+    const [, slotLabel, teamId] = clicked.split(':');
+    config.teams[slotLabel] = teamId;
+  } else if (clicked === 'teamBack') {
+    screen = 'briefing';
+  } else if (clicked === 'battle' && Menu.canStartMatch(config)) {
+    startMatch();
   }
 }
 
@@ -284,6 +356,8 @@ function handleMenuClick() {
     screen = 'briefing';
   } else if (screen === 'briefing') {
     handleBriefingClick(clicked);
+  } else if (screen === 'teamAssign') {
+    handleTeamAssignClick(clicked);
   } else if (screen === 'result') {
     if (clicked === 'rematch') startMatch();
     else if (clicked === 'changeDifficulty') screen = 'briefing';
@@ -323,11 +397,16 @@ startLoop(
     Input.update();
   },
   () => {
+    // Lets Menu keep its drag handlers inert everywhere except Team Setup.
+    menu.setScreen(screen);
+
     if (screen === 'title') {
       menu.drawTitleScreen(ctx, canvas);
     } else if (screen === 'briefing') {
       menu.drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats);
       if (briefingStatsOpen) menu.drawStatsModal(ctx, canvas, stats);
+    } else if (screen === 'teamAssign') {
+      menu.drawTeamAssignScreen(ctx, canvas, config);
     } else if (screen === 'match') {
       drawMatchScene();
     } else if (screen === 'paused') {

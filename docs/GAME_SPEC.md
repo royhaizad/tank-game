@@ -13,10 +13,11 @@ either free-for-all (the default) or split into two teams (see section 9.2).
 **Inspiration:** Tank Trouble (bouncing-bullet mechanic).
 **Platform:** Browser, HTML5, fully client-side, no backend.
 **Session length:** 1–5 minutes per match.
-**Core loop:** Configure forces (match mode, how many players, how many AI,
-each AI's difficulty, and — in 2-Team mode — each tank's team) on the
-Mission Briefing screen → fight in a random maze → last tank (FFA) or last
-team (2-Team) standing wins → rematch or reconfigure.
+**Core loop:** Configure forces (how many players, how many AI, each AI's
+difficulty) on the Mission Briefing screen → pick the match type there with
+one of its two battle buttons, assigning teams on the Team Setup screen if
+it's a team match → fight in a random maze → last tank (all-vs-all) or last
+team standing wins → rematch or reconfigure.
 
 ---
 
@@ -110,11 +111,11 @@ re-evaluated every reaction tick alongside its normal re-pathing. If its
 current target is destroyed, it re-targets immediately rather than waiting
 for the next reaction tick.
 
-**Targeting (2-Team):** not built yet. When the 2-Team match logic lands
-(section 9.2), an AI must target living tanks on the *opposing* team only,
-and never pick a teammate as its nearest target. It is not protected from
-a teammate's bullet, though — friendly fire is ON in team mode (section
-9.2), so a stray bounce can still destroy a teammate.
+**Targeting (team mode):** an AI considers only living tanks on the
+*opposing* team, picking the nearest of those by the same rule as above —
+a teammate is never chosen as a target. That is the whole of team-awareness
+in the AI: it is not *protected* from a teammate's bullet, because friendly
+fire is ON (section 9.2), so a stray bounce can still destroy a teammate.
 
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
@@ -187,12 +188,8 @@ bullets at close range.
 ## 6. Screens / Flow
 
 1. **Title Screen** — logo, Play button, idle background animation.
-2. **Mission Briefing** — configure forces before battle:
-   - Match Mode: FFA / 2-Team toggle in the top-left corner (mirroring the
-     Session Stats button's corner placement). FFA is the default and the
-     screen looks and behaves exactly as it did before team mode existed.
-     Picking 2-Team adds a Team A / Team B picker to every configured
-     tank's row and a roster read-out above the buttons — see section 9.2.
+2. **Mission Briefing** — configure forces before battle. This screen picks
+   *who* fights; the two battle buttons at the bottom pick *how*:
    - Allied Forces: 1P / 2P / 3P toggle picks how many local human players.
      Each active player slot shows its control scheme (Move Forward/Back,
      Turn Left/Right, Fire), rebindable directly from this screen (click a
@@ -204,20 +201,40 @@ bullets at close range.
      disabled — "Coming soon," same as everywhere else in this doc).
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
-   - "Battle!" button starts the match with the configured forces. Needs
-     2+ tanks total; in 2-Team mode it also needs both teams occupied
-     (disabled, with an inline reason, until they are).
+   - Two battle buttons, in place of the single "Battle!" this screen used
+     to have. Both need 2+ tanks total and are disabled below that:
+     - **All vs All Battle** — starts a free-for-all immediately.
+     - **Teams Battle** — goes to the Team Setup screen (below). It does
+       *not* check the team split, since Team Setup is where a bad split
+       gets fixed; gating entry would be a dead end.
    - Session Stats button (top-right corner) — only shown once at least one
      match has been tallied this session (see section 9.1); opens a modal
      overlay with the same scoreboard and Reset Stats button as the Result
      Screen, plus a Close button to return to Briefing.
-3. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
+3. **Team Setup** — reached from Mission Briefing's "Teams Battle" button;
+   see section 9.2 for the rules it enforces. Contains:
+   - A "← Back" button (top-left) returning to Mission Briefing with the
+     forces and assignments intact.
+   - A radio pair, **Play All vs All** / **Play Teams**, so the match type
+     can still be changed from here without navigating back. Arriving via
+     "Teams Battle" selects Play Teams. Selecting Play All vs All dims the
+     team boxes and makes the whole assignment area inert.
+   - Two boxes, **Team 1** and **Team 2**, holding a labeled tank token
+     (P1/P2/P3/AI1/AI2/AI3, in that tank's own color) for every configured
+     tank. Drag a token into the other box to reassign it; clicking a token
+     swaps it to the other team instead, for trackpads. Dropping outside a
+     box, or back into its own, changes nothing.
+   - "▶ Battle!" — needs 2+ tanks and, in Play Teams, both teams occupied;
+     disabled with an inline reason otherwise.
+4. **Match Screen** — maze + every configured tank (labeled P1/P2/P3 for
    players, AI1/AI2/AI3 for AI, in spawn order) + power-up crates, small
    HUD (current weapon icon + ammo count per player — see HUD notes below
-   for the multi-player case).
-4. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
-   player, red if the winner is an AI tank; "Draw" in the rare simultaneous-
-   kill case — see section 9), buttons:
+   for the multi-player case). In a team match each tank also flies a small
+   team-colored flag (section 9.2).
+5. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
+   player, red if the winner is an AI tank, the winning team's own color if
+   a team won; "Draw" in the rare simultaneous-kill case — see section 9),
+   buttons:
    Rematch (new random maze, same configuration), Change Difficulty (back
    to Mission Briefing — the button keeps its original name from the
    single-AI era even though it now reconfigures the whole match, not just
@@ -311,8 +328,10 @@ words, to fit the space).
 - A kill is credited to whichever tank's bullet destroyed another tank.
   Self-kill via your own ricochet (section 3.2) counts as a death but never
   as a kill against yourself.
-- A win is credited to the last tank standing; a draw (simultaneous mutual
-  kill) credits no one.
+- In all-vs-all, a win is credited to the last tank standing. In a team
+  match it's credited to every tank on the winning team, destroyed members
+  included (section 9.2). A draw (simultaneous mutual kill, or both teams
+  wiped in the same instant) credits no one.
 - Stats survive Rematch, Change Difficulty, and Back to Title. Only an
   explicit Reset Stats button (on the Result Screen or the Briefing stats
   modal — see section 6) clears them. A page refresh also clears them,
@@ -328,36 +347,41 @@ words, to fit the space).
   stats modal (`src/ui/menu.js`, all tanks used this session, both with
   the Reset Stats button).
 
-### 9.2 Team Mode (2-Team)
+### 9.2 Team Mode (Team 1 vs Team 2)
 
-An opt-in alternative to free-for-all, chosen with the Match Mode toggle on
-the Mission Briefing screen (section 6). FFA remains the default and is
+An opt-in alternative to free-for-all, entered with Mission Briefing's
+"Teams Battle" button (section 6). All-vs-all remains the default and is
 completely unaffected by everything in this section.
 
 **Assignment.** Every configured tank — human or AI, any mix, up to 6 total
-— is assigned to Team A or Team B by hand on the Briefing screen, via a
-Team A/B picker on that tank's own row. There is no auto-balance. Uneven
-teams are allowed and supported on purpose (e.g. 1 human vs 3 AI). The
-default split is every human on Team A vs every AI on Team B; any tank can
-be moved to either team.
+— is assigned to Team 1 or Team 2 by hand on the Team Setup screen. There
+is no auto-balance. Uneven teams are allowed and supported on purpose (e.g.
+1 human vs 3 AI). The default split is every human on Team 1 vs every AI on
+Team 2; any tank can be moved to either team.
 
 - Assignments are stored per slot label (P1–P3, AI1–AI3), like the session
-  stats in 9.1, so they survive changing the player/AI counts, toggling
-  back to FFA and returning, and coming back from a match. They are *not*
+  stats in 9.1, so they survive changing the player/AI counts, switching
+  match type back and forth, and coming back from a match. They are *not*
   auto-corrected when the counts change — if the current counts leave one
   team empty, Battle is disabled with an inline reason until the player
   fixes the split themselves.
 - Both teams must have at least one tank for a match to start.
-- Team colors (Team A blue, Team B orange) are a team identity of their
+- Team colors (Team 1 blue, Team 2 orange) are a team identity of their
   own, distinct from each tank's individual color, since a team is a mix
   of human and AI tanks.
 
-**Win condition.** *Not built yet.* The match ends when every tank on one
-team is destroyed, and the surviving team wins (last team standing) — the
-team-level equivalent of FFA's last-tank-standing. If the last tanks on
-both teams are destroyed in the same instant, it's a draw and neither team
-wins, matching FFA's simultaneous-kill rule. FFA's own win logic is
-untouched by this.
+**In-match identification.** Each tank flies a small team-colored flag,
+drawn as a separate pass layered over the tank rather than as part of the
+tank itself: the tank keeps its own color and the flag stays upright while
+the tank rotates beneath it. The P1/AI1 label above each tank stays white
+in both match types — the flag is the only team cue on the map.
+
+**Win condition.** The match ends when every tank on one team is destroyed,
+and the surviving team wins (last team standing) — the team-level
+equivalent of all-vs-all's last-tank-standing. If the last tanks on both
+teams are destroyed in the same instant, it's a draw and neither team wins,
+matching the simultaneous-kill rule in section 9. All-vs-all's own win
+logic is untouched by this.
 
 **Friendly fire: ON.** A bullet destroys whatever tank it touches, teammates
 included — exactly as in free-for-all, with no team-based exemption in the
@@ -372,11 +396,10 @@ ricochet (section 3.2) remains intentional.
 - AI still never *targets* a teammate (section 5) — it just isn't protected
   from a stray bounce.
 
-**Status.** The Briefing screen half is built: the Match Mode toggle,
-per-tank team assignment, the roster read-out, and the both-teams-occupied
-Battle gate. The match itself still runs free-for-all until the win
-condition above is implemented — the Briefing screen says so in-line while
-that's true.
+**Win credit.** A team win credits a 🏆 Win to **every** tank on the winning
+team, including ones destroyed earlier in the match — the win belongs to the
+team, not to whoever happened to survive it (see section 9.1). A draw
+credits no one, as in all-vs-all.
 
 ---
 

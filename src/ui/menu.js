@@ -16,18 +16,40 @@ class Menu {
   static STAT_COLORS = { wins: '#4caf50', kills: '#e74c3c', deaths: '#ffffff' };
   static SCORE_LABEL_COLOR = '#ffffff';
 
-  // 2-Team mode (GAME_SPEC.md section 9.2). A team is a mix of human and AI
+  // Team mode (GAME_SPEC.md section 9.2). A team is a mix of human and AI
   // tanks, so a team's color is its own identity — not derived from
   // PLAYER_COLORS/AI_COLORS, which stay per-tank.
-  static TEAM_IDS = ['A', 'B'];
-  static TEAM_COLORS = { A: '#2f8fbf', B: '#d07b2a' };
+  static TEAM_IDS = ['1', '2'];
+  static TEAM_COLORS = { 1: '#2f8fbf', 2: '#d07b2a' };
+  // Darkened team colors, for the Result screen banner background — the
+  // full-strength colors are far too bright behind 30px text.
+  static TEAM_BG_COLORS = { 1: '#1b3a4a', 2: '#4a3117' };
 
   constructor(canvas) {
     this.canvas = canvas;
     this.buttons = [];
     this.clickedId = null;
+    this.screen = null; // set each frame by main.js, so the drag handlers below stay inert elsewhere
+
+    // Team Setup drag state (GAME_SPEC.md section 9.2). Tokens and drop
+    // zones are rebuilt every frame by drawTeamAssignScreen; a finished
+    // drag reports itself as a `team:<slot>:<teamId>` click, so main.js
+    // handles a drop and a plain click through the exact same path.
+    this.tokens = [];
+    this.dropZones = [];
+    this.drag = null;
+    this.suppressClick = false;
 
     canvas.addEventListener('click', (e) => this._onClick(e));
+    canvas.addEventListener('mousedown', (e) => this._onPointerDown(e));
+    // move/up on window, not canvas, so a drag that wanders off the canvas
+    // still tracks and still releases instead of getting stuck held down.
+    window.addEventListener('mousemove', (e) => this._onPointerMove(e));
+    window.addEventListener('mouseup', (e) => this._onPointerUp(e));
+  }
+
+  setScreen(screen) {
+    this.screen = screen;
   }
 
   consumeClick() {
@@ -36,20 +58,92 @@ class Menu {
     return id;
   }
 
-  _onClick(e) {
+  _eventPos(e) {
     const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    return {
+      x: (e.clientX - rect.left) * (this.canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (this.canvas.height / rect.height)
+    };
+  }
+
+  static _hits(x, y, rect) {
+    return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+  }
+
+  _onClick(e) {
+    // A drag or a token tap already decided what this gesture meant; without
+    // this, releasing a token on top of a button would also press it.
+    if (this.suppressClick) {
+      this.suppressClick = false;
+      return;
+    }
+
+    const { x, y } = this._eventPos(e);
 
     for (const btn of this.buttons) {
       if (btn.disabled) continue;
-      if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+      if (Menu._hits(x, y, btn)) {
         this.clickedId = btn.id;
         return;
       }
     }
+  }
+
+  _onPointerDown(e) {
+    if (this.screen !== 'teamAssign') return;
+
+    const { x, y } = this._eventPos(e);
+    const token = this.tokens.find((t) => Menu._hits(x, y, t));
+    if (!token) return;
+
+    this.drag = {
+      slotLabel: token.slotLabel,
+      teamId: token.teamId,
+      color: token.color,
+      w: token.w,
+      h: token.h,
+      offsetX: x - token.x,
+      offsetY: y - token.y,
+      startX: x,
+      startY: y,
+      x,
+      y,
+      moved: false
+    };
+  }
+
+  _onPointerMove(e) {
+    if (!this.drag) return;
+
+    const { x, y } = this._eventPos(e);
+    this.drag.x = x;
+    this.drag.y = y;
+    // Compared against where the press started, not the last frame, so a
+    // slow drag still counts as a drag rather than a string of taps.
+    if (Math.hypot(x - this.drag.startX, y - this.drag.startY) > 4) this.drag.moved = true;
+  }
+
+  _onPointerUp(e) {
+    if (!this.drag) return;
+
+    const drag = this.drag;
+    this.drag = null;
+    const { x, y } = this._eventPos(e);
+
+    let assignedTo = null;
+    if (drag.moved) {
+      // Dropped outside any box, or back into its own, means "no change" —
+      // the token simply reappears where it started.
+      const zone = this.dropZones.find((z) => Menu._hits(x, y, z));
+      if (zone && zone.teamId !== drag.teamId) assignedTo = zone.teamId;
+    } else {
+      // Click fallback: a tap on a token swaps it to the other team, for
+      // trackpads and for anyone who'd rather not drag.
+      assignedTo = Menu.TEAM_IDS.find((id) => id !== drag.teamId);
+    }
+
+    this.suppressClick = true;
+    if (assignedTo) this.clickedId = `team:${drag.slotLabel}:${assignedTo}`;
   }
 
   drawTitleScreen(ctx, canvas) {
@@ -65,15 +159,19 @@ class Menu {
     this._drawButton(ctx, playButton);
   }
 
-  // --- 2-Team helpers, per GAME_SPEC.md section 9.2 ---------------------
-  // `config.teams` maps slot label ('P1'..'P3', 'AI1'..'AI3') to 'A' or 'B'
+  // --- Team helpers, per GAME_SPEC.md section 9.2 -----------------------
+  // `config.teams` maps slot label ('P1'..'P3', 'AI1'..'AI3') to '1' or '2'
   // for all six possible slots; only the ones the current player/AI counts
   // actually use count for anything. These live here rather than in
-  // main.js so the Briefing screen's disabled state and the Battle button's
-  // click handler can never disagree about what's startable.
+  // main.js so the Team Setup screen's disabled state and the Battle
+  // button's click handler can never disagree about what's startable.
 
   static teamOf(config, label) {
-    return config.teams && config.teams[label] === 'B' ? 'B' : 'A';
+    return config.teams && config.teams[label] === '2' ? '2' : '1';
+  }
+
+  static slotColor(slot) {
+    return slot.kind === 'player' ? Menu.PLAYER_COLORS[slot.index] : Menu.AI_COLORS[slot.index];
   }
 
   // Every tank the current configuration will actually put on the field, in
@@ -86,18 +184,18 @@ class Menu {
   }
 
   static teamCounts(config) {
-    const counts = { A: 0, B: 0 };
+    const counts = { 1: 0, 2: 0 };
     Menu.configuredSlots(config).forEach((slot) => counts[Menu.teamOf(config, slot.label)]++);
     return counts;
   }
 
-  // FFA needs 2+ tanks; 2-Team additionally needs both teams occupied.
-  // Uneven teams (e.g. 1 vs 3) are fine on purpose.
+  // Every mode needs 2+ tanks; team mode additionally needs both teams
+  // occupied. Uneven teams (e.g. 1 vs 3) are fine on purpose.
   static canStartMatch(config) {
     if (config.playerCount + config.aiCount < 2) return false;
     if (!config.teamMode) return true;
     const counts = Menu.teamCounts(config);
-    return counts.A > 0 && counts.B > 0;
+    return counts['1'] > 0 && counts['2'] > 0;
   }
 
   // Mission Briefing screen, per GAME_SPEC.md section 6: pick player count
@@ -109,10 +207,10 @@ class Menu {
   // only used here to decide whether the Session Stats button (top-right,
   // opens drawStatsModal) is worth showing; it's hidden until at least one
   // match has been tallied this session, per GAME_SPEC.md section 9.1.
-  // `config` also carries { teamMode, teams } — in 2-Team mode every
-  // configured tank's row grows a Team A/Team B picker and a roster
-  // read-out appears above the buttons (GAME_SPEC.md section 9.2). FFA is
-  // the default and looks exactly as it did before team mode existed.
+  // Team assignment deliberately does NOT live here — this screen picks the
+  // forces, and the two battle buttons at the bottom pick the match type:
+  // "All vs All Battle" starts immediately, "Teams Battle" hands off to the
+  // Team Setup screen (drawTeamAssignScreen), per GAME_SPEC.md section 9.2.
   drawBriefingScreen(ctx, canvas, config, awaitingRebind, stats) {
     this._drawBackground(ctx, canvas, '#2c4a1e');
     this.buttons = [];
@@ -123,8 +221,6 @@ class Menu {
     ctx.fillText('Mission Briefing', canvas.width / 2, 22);
     ctx.font = '11px sans-serif';
     ctx.fillText('Configure your forces before battle', canvas.width / 2, 38);
-
-    this._drawModeToggle(ctx, config);
 
     this._drawCountSelector(
       ctx,
@@ -139,32 +235,40 @@ class Menu {
       n === 0 ? config.playerCount < 2 : false
     );
 
-    const teamMode = !!config.teamMode;
     for (let i = 0; i < config.playerCount; i++) {
-      const teamId = teamMode ? Menu.teamOf(config, `P${i + 1}`) : null;
-      this._drawPlayerBriefingRow(ctx, i, 95 + i * 85, awaitingRebind, teamId);
+      this._drawPlayerBriefingRow(ctx, i, 95 + i * 85, awaitingRebind);
     }
     for (let i = 0; i < config.aiCount; i++) {
-      const teamId = teamMode ? Menu.teamOf(config, `AI${i + 1}`) : null;
-      this._drawAiBriefingRow(ctx, i, 95 + i * 85, config.aiDifficulties[i], teamId);
+      this._drawAiBriefingRow(ctx, i, 95 + i * 85, config.aiDifficulties[i]);
     }
 
-    if (teamMode) this._drawTeamSummary(ctx, canvas, config);
-
-    const canBattle = Menu.canStartMatch(config);
-    const backButton = { id: 'briefingBack', x: 200, y: 440, w: 90, h: 34, label: '← Back' };
-    const battleButton = {
-      id: 'battle',
-      x: 340,
+    // Both battle buttons need 2+ tanks; "Teams Battle" doesn't check the
+    // team split here, because the Team Setup screen it opens is where you
+    // fix a split anyway — gating entry to it would be a dead end.
+    const canBattle = config.playerCount + config.aiCount >= 2;
+    const backButton = { id: 'briefingBack', x: 75, y: 440, w: 90, h: 34, label: '← Back' };
+    const ffaButton = {
+      id: 'battleFfa',
+      x: 185,
       y: 440,
-      w: 120,
+      w: 190,
       h: 34,
-      label: '▶ Battle!',
+      label: 'All vs All Battle',
       disabled: !canBattle
     };
-    this.buttons.push(backButton, battleButton);
+    const teamsButton = {
+      id: 'battleTeams',
+      x: 395,
+      y: 440,
+      w: 170,
+      h: 34,
+      label: 'Teams Battle',
+      disabled: !canBattle
+    };
+    this.buttons.push(backButton, ffaButton, teamsButton);
     this._drawButton(ctx, backButton);
-    this._drawButton(ctx, battleButton);
+    this._drawButton(ctx, ffaButton);
+    this._drawButton(ctx, teamsButton);
 
     if (stats && Object.keys(stats).length > 0) {
       const statsButton = { id: 'viewStats', x: canvas.width - 132, y: 8, w: 124, h: 22, label: 'Session Stats' };
@@ -201,10 +305,7 @@ class Menu {
     });
   }
 
-  // `teamId` is 'A'/'B' in 2-Team mode, or null/undefined to leave the row
-  // exactly as it was pre-team-mode — which is what FFA and the pause
-  // menu's Change Controls screen both pass.
-  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind, teamId) {
+  _drawPlayerBriefingRow(ctx, playerIndex, y, awaitingRebind) {
     const colors = Menu.PLAYER_COLORS;
     const bindings = Input.playerBindings[playerIndex];
 
@@ -235,11 +336,9 @@ class Menu {
       this._drawKeyBox(ctx, btn);
       x += boxW + gap;
     });
-
-    if (teamId) this._drawTeamChips(ctx, 20, y + 42, `P${playerIndex + 1}`, teamId);
   }
 
-  _drawAiBriefingRow(ctx, aiIndex, y, difficulty, teamId) {
+  _drawAiBriefingRow(ctx, aiIndex, y, difficulty) {
     const colors = Menu.AI_COLORS;
 
     ctx.fillStyle = colors[aiIndex];
@@ -271,89 +370,173 @@ class Menu {
       this._drawToggleButton(ctx, btn);
       x += boxW + gap;
     });
-
-    if (teamId) this._drawTeamChips(ctx, 340, y + 42, `AI${aiIndex + 1}`, teamId);
   }
 
-  // Match-mode picker, top-left — mirroring the Session Stats button's
-  // corner placement so the crowded middle of the screen stays as-is.
-  // Free-for-all is the default and behaves exactly as it always has;
-  // 2-Team turns on the per-tank pickers (GAME_SPEC.md section 9.2).
-  _drawModeToggle(ctx, config) {
-    const modes = [
-      { id: 'mode:ffa', label: 'FFA', selected: !config.teamMode },
-      { id: 'mode:team', label: '2-Team', selected: !!config.teamMode }
-    ];
+  // Team Setup — the screen "Teams Battle" opens from Mission Briefing, per
+  // GAME_SPEC.md section 9.2. It owns the match-type radio as well as the
+  // assignment, so you can drop back to all-vs-all without navigating back
+  // a screen. Tanks are dragged between the two boxes; clicking one swaps
+  // it to the other team instead.
+  drawTeamAssignScreen(ctx, canvas, config) {
+    this._drawBackground(ctx, canvas, '#2c4a1e');
+    this.buttons = [];
+    this.tokens = [];
+    this.dropZones = [];
 
-    let x = 8;
-    modes.forEach((mode) => {
-      const btn = { id: mode.id, x, y: 8, w: 62, h: 22, label: mode.label, selected: mode.selected };
-      this.buttons.push(btn);
-      this._drawToggleButton(ctx, btn);
-      x += 66;
-    });
-  }
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Team Setup', canvas.width / 2, 26);
 
-  // Per-tank Team A / Team B picker, tucked into the empty band below a
-  // briefing row's key boxes (players) or difficulty tiers (AI), so team
-  // mode doesn't reflow the rows themselves. Button id is
-  // `team:<slotLabel>:<A|B>`, handled by main.js's handleBriefingClick.
-  _drawTeamChips(ctx, x, y, slotLabel, currentTeam) {
-    ctx.fillStyle = '#cfcfcf';
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('Team', x, y + 14);
+    const backButton = { id: 'teamBack', x: 8, y: 8, w: 84, h: 24, label: '← Back' };
+    this.buttons.push(backButton);
+    this._drawSmallButton(ctx, backButton);
 
-    const chipW = 34;
-    const gap = 4;
-    let chipX = x + 32;
-
-    Menu.TEAM_IDS.forEach((teamId) => {
-      const btn = {
-        id: `team:${slotLabel}:${teamId}`,
-        x: chipX,
-        y,
-        w: chipW,
-        h: 20,
-        label: teamId,
-        selected: currentTeam === teamId,
-        selectedColor: Menu.TEAM_COLORS[teamId]
-      };
-      this.buttons.push(btn);
-      this._drawToggleButton(ctx, btn);
-      chipX += chipW + gap;
-    });
-  }
-
-  // Roster read-out above the Back/Battle buttons, so the split is readable
-  // at a glance without tracing every row's chips. Also carries team mode's
-  // two standing notices: an empty team (which blocks Battle) and the
-  // reminder that the match itself still runs free-for-all until the
-  // team win condition is wired up.
-  _drawTeamSummary(ctx, canvas, config) {
-    const centerX = canvas.width / 2;
-    const slots = Menu.configuredSlots(config);
+    const teamsOn = !!config.teamMode;
+    this._drawRadio(ctx, canvas, 'mode:ffa', 'Play All vs All', 42, !teamsOn);
+    this._drawRadio(ctx, canvas, 'mode:team', 'Play Teams', 74, teamsOn);
 
     ctx.textAlign = 'center';
-    ctx.font = 'bold 12px sans-serif';
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = teamsOn ? '#cfcfcf' : '#7d8f71';
+    ctx.fillText('Click and drag tanks between teams — or click one to swap sides', canvas.width / 2, 118);
 
-    const rosters = Menu.TEAM_IDS.map((teamId) =>
-      slots.filter((slot) => Menu.teamOf(config, slot.label) === teamId).map((slot) => slot.label)
-    );
+    Menu.TEAM_IDS.forEach((teamId, i) => this._drawTeamBox(ctx, canvas, config, teamId, 138 + i * 116, teamsOn));
 
-    rosters.forEach((members, i) => {
-      ctx.fillStyle = Menu.TEAM_COLORS[Menu.TEAM_IDS[i]];
-      ctx.fillText(`TEAM ${Menu.TEAM_IDS[i]} — ${members.length ? members.join(', ') : 'empty'}`, centerX, 390 + i * 18);
+    const counts = Menu.teamCounts(config);
+    if (teamsOn && (counts['1'] === 0 || counts['2'] === 0)) {
+      ctx.textAlign = 'center';
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = '#c9903b';
+      ctx.fillText('Both teams need at least one tank before you can start.', canvas.width / 2, 380);
+    }
+
+    const battleButton = {
+      id: 'battle',
+      x: canvas.width / 2 - 90,
+      y: 390,
+      w: 180,
+      h: 44,
+      label: '▶ Battle!',
+      disabled: !Menu.canStartMatch(config)
+    };
+    this.buttons.push(battleButton);
+    this._drawButton(ctx, battleButton);
+
+    // The held tank rides above everything, including the box it's about to
+    // land in, so it never slips behind a border mid-drag.
+    if (this.drag) {
+      this._drawTankToken(
+        ctx,
+        {
+          slotLabel: this.drag.slotLabel,
+          color: this.drag.color,
+          x: this.drag.x - this.drag.offsetX,
+          y: this.drag.y - this.drag.offsetY,
+          w: this.drag.w,
+          h: this.drag.h
+        },
+        true,
+        true
+      );
+    }
+  }
+
+  _drawRadio(ctx, canvas, id, label, y, selected) {
+    const btn = { id, x: canvas.width / 2 - 150, y, w: 300, h: 26, label, selected };
+    this.buttons.push(btn);
+
+    ctx.fillStyle = selected ? '#4a4a4a' : '#3a3a3a';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = selected ? '#fff' : '#000';
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+
+    const cx = btn.x + 18;
+    const cy = btn.y + btn.h / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+    if (selected) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = selected ? 'bold 13px sans-serif' : '13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, btn.x + 36, cy + 1);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // One team's drop zone plus the tanks currently assigned to it. When
+  // all-vs-all is selected the box is drawn dimmed and registers neither a
+  // drop zone nor draggable tokens, so the whole screen goes inert.
+  _drawTeamBox(ctx, canvas, config, teamId, top, enabled) {
+    const box = { x: 40, y: top + 6, w: canvas.width - 80, h: 86 };
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = enabled ? Menu.TEAM_COLORS[teamId] : '#6f7f63';
+    ctx.fillText(`Team ${teamId}`, box.x + 2, top);
+
+    const dragOver = enabled && this.drag && this.drag.teamId !== teamId && Menu._hits(this.drag.x, this.drag.y, box);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.strokeStyle = !enabled ? '#4a5a3e' : dragOver ? '#ffffff' : Menu.TEAM_COLORS[teamId];
+    ctx.lineWidth = dragOver ? 3 : 2;
+    ctx.strokeRect(box.x, box.y, box.w, box.h);
+    ctx.lineWidth = 1;
+
+    if (enabled) this.dropZones.push({ teamId, x: box.x, y: box.y, w: box.w, h: box.h });
+
+    const members = Menu.configuredSlots(config).filter((slot) => Menu.teamOf(config, slot.label) === teamId);
+    let x = box.x + 12;
+
+    members.forEach((slot) => {
+      const token = { slotLabel: slot.label, teamId, color: Menu.slotColor(slot), x, y: box.y + 12, w: 62, h: 62 };
+      // The tank under the cursor is drawn there instead, but its gap stays
+      // open so it stays obvious where it was picked up from.
+      const held = this.drag && this.drag.slotLabel === slot.label;
+      if (!held) {
+        if (enabled) this.tokens.push(token);
+        this._drawTankToken(ctx, token, enabled, false);
+      }
+      x += 70;
     });
 
-    ctx.font = '10px sans-serif';
-    if (rosters.some((members) => members.length === 0)) {
-      ctx.fillStyle = '#c9903b';
-      ctx.fillText('Both teams need at least one tank before you can start.', centerX, 428);
-    } else {
-      ctx.fillStyle = '#9db08f';
-      ctx.fillText('Note: the team win condition is not wired up yet — this still plays as free-for-all.', centerX, 428);
+    if (members.length === 0) {
+      ctx.textAlign = 'center';
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = enabled ? '#8fa383' : '#6f7f63';
+      ctx.fillText('empty — drag a tank here', box.x + box.w / 2, box.y + box.h / 2 + 4);
     }
+  }
+
+  // A tank as a draggable chip: the same body-plus-barrel shape Tank.draw()
+  // paints on the maze, pointing up, with its P1/AI1 label underneath.
+  _drawTankToken(ctx, token, enabled, lifted) {
+    if (lifted) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillRect(token.x + 5, token.y + 7, token.w - 10, token.h - 14);
+    }
+
+    ctx.fillStyle = enabled ? '#333' : '#3a3a3a';
+    ctx.fillRect(token.x + 28, token.y + 2, 6, 14);
+
+    ctx.fillStyle = enabled ? token.color : '#4a4a4a';
+    ctx.fillRect(token.x + 12, token.y + 12, 38, 30);
+    ctx.strokeStyle = lifted ? '#fff' : '#000';
+    ctx.strokeRect(token.x + 12, token.y + 12, 38, 30);
+
+    ctx.fillStyle = enabled ? '#fff' : '#8a8a8a';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(token.slotLabel, token.x + token.w / 2, token.y + 58);
   }
 
   _drawToggleButton(ctx, btn) {
@@ -389,12 +572,21 @@ class Menu {
   }
 
   // winner: { label, kind: 'player'|'ai' } for whoever's left standing, or
-  // null for a draw (simultaneous mutual kill), per GAME_SPEC.md section 9.
+  // { label, kind: 'team', team } for the last team standing in team mode,
+  // or null for a draw (simultaneous mutual kill), per GAME_SPEC.md 9/9.2.
   // stats: label -> { kills, deaths, wins } session tallies (src/main.js),
   // shown as a scoreboard with a Reset button per HANDOFF.md "Session B" —
   // in-session tallies only, cleared solely by that button (or a refresh).
   drawResultScreen(ctx, canvas, winner, stats) {
-    const bg = !winner ? '#3a3a3a' : winner.kind === 'player' ? '#1e4a2c' : '#4a1e1e';
+    // A team is a mix of humans and AI, so the player-green/AI-red split
+    // doesn't apply to it — a team win gets its own team color instead.
+    const bg = !winner
+      ? '#3a3a3a'
+      : winner.kind === 'team'
+        ? Menu.TEAM_BG_COLORS[winner.team]
+        : winner.kind === 'player'
+          ? '#1e4a2c'
+          : '#4a1e1e';
     this._drawBackground(ctx, canvas, bg);
 
     ctx.fillStyle = '#fff';

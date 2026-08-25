@@ -32,6 +32,10 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stops being reachable along the path it was planned from (e.g. shoved off-course by
   reversing) — the earlier root cause of it looking permanently stuck against a wall.
   Fires instantly (0s delay) on aim+line-of-sight; limited to 1 bullet + 1s cooldown.
+- **Team mode**: Mission Briefing's two battle buttons (All vs All / Teams), the
+  Team Setup screen with drag-and-drop assignment into Team 1 / Team 2, on-map
+  team flags, last-team-standing win with draw handling, AI targeting enemies
+  only, and a team win crediting every member. Friendly fire is ON.
 - **Multiplayer**: Mission Briefing screen (1-3 players, 0-3 AI, per-AI difficulty,
   inline per-player key rebinding); free-for-all (any bullet hurts any tank);
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
@@ -51,44 +55,32 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
 
 ## Planned next
 
-**`feat/team-assign` — 2-Team mode, phase 2 (match logic).** Phase 1 (the
-Mission Briefing UI) is done on this branch: `config.teamMode` + `config.teams`
-(slot label -> 'A'/'B') in `src/main.js`, the Match Mode toggle / per-row team
-pickers / roster read-out in `src/ui/menu.js`, and `Menu.canStartMatch()` as the
-single source of truth for whether Battle is allowed. See GAME_SPEC.md 9.2.
+Nothing currently queued — see Known gaps below for candidates.
 
-Phase 2 was deliberately *not* started, to stay out of a concurrent
-`feat/session-stats` session's way in `updateMatch()`. Once that has merged:
+**`feat/team-assign` is feature-complete** (not yet merged to `main`). Team
+mode works end to end; see GAME_SPEC.md 9.2 and section 6. How it's put
+together, so the next session doesn't have to re-derive it:
 
-1. **Carry the team onto the field** — `startMatch()` puts `team: 'A'|'B'` on
-   each `matchTanks` entry when `config.teamMode` (read from `config.teams` by
-   slot label, which is already what the labels are keyed by).
-2. **Win condition** — the `survivors.length <= 1` check in `updateMatch()`
-   grows a team branch: group survivors by team, end when one team has zero
-   left, credit the win, draw if both empty in the same frame. FFA's branch
-   stays exactly as it is.
-3. **Result screen** — `drawResultScreen()` needs a team winner case ("Team A
-   Wins!") alongside the current per-tank one; pick the banner background from
-   the team color rather than winner.kind.
-4. **Session stats** — teammate kills need no special case (friendly fire is
-   ON, so the shooter gets the kill and the teammate the death, like any other
-   kill). Still to settle: a team win should credit `wins` to every tank on the
-   winning team, including ones destroyed during the match — 9.1 currently
-   credits exactly one label, so that line needs updating when it's built.
-5. **AI targeting** — `EasyAI` must not pick a teammate as its nearest target
-   (GAME_SPEC.md section 5's 2-Team targeting note). Note this is targeting
-   only: with friendly fire ON, a teammate is still killable by a stray bounce,
-   so no change is needed in the bullet-collision loop.
-6. **On-map readability** — tanks currently only differ by their own color; a
-   team match needs a visible team marker (outline/underline on the label) or
-   the split is invisible during play.
-7. **Remove the temporary notice** on the Briefing screen (`_drawTeamSummary`
-   in `src/ui/menu.js`) that says team mode still plays as free-for-all.
-
-**Decided 2026-08-24:** friendly fire in team mode is **ON** — a bullet
-destroys any tank it touches, teammates included, exactly as in FFA
-(GAME_SPEC.md 9.2). So the bullet-collision loop in `updateMatch()` needs no
-team-awareness at all; teams only change AI targeting and how the match ends.
+- `config.teamMode` + `config.teams` (slot label -> '1'/'2') in `src/main.js`
+  hold the whole configuration. Assignments are per slot label like `stats`,
+  so they survive count changes and mode switches.
+- `Menu.canStartMatch()` is the single source of truth for whether Battle is
+  allowed, used by both the button's disabled state and the click handler, so
+  they can't disagree.
+- **Drag and drop** lives in `Menu`'s pointer handlers. A finished drop and a
+  plain click on a token both emit the same `team:<slot>:<teamId>` id through
+  the existing `consumeClick()` channel, so `handleTeamAssignClick()` needs no
+  separate drop path. `menu.setScreen(screen)` is called once per frame from
+  the draw callback purely so those handlers stay inert off the Team Setup
+  screen. `suppressClick` stops the browser's click-after-mouseup from also
+  pressing whatever button sits under the drop point.
+- **Friendly fire is ON** (decided 2026-08-24), so the bullet-collision pass in
+  `updateMatch()` is deliberately team-blind and identical in both match types.
+  Teams only change AI targeting (the caller filters the `opponents` array
+  `EasyAI` receives) and the win condition.
+- The team flag is its own draw pass in `drawTeamFlag()` (`src/main.js`), not
+  part of `Tank.draw()` — the tank knows nothing about teams and the flag has
+  to stay upright while the tank rotates.
 
 ## Known gaps
 

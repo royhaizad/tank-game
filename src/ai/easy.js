@@ -91,9 +91,13 @@ class EasyAI {
     this.facingThreshold = 0.26; // ~15 degrees, radians
   }
 
-  // `opponents`: every other tank in the match (living or destroyed —
-  // this filters for itself). FFA per GAME_SPEC.md section 5: targets
-  // whichever is nearest by path distance, player or AI alike.
+  // `opponents`: the tanks this AI is willing to target (living or
+  // destroyed — this filters for itself), and nothing else decides that.
+  // Per GAME_SPEC.md section 5 it targets whichever is nearest by path
+  // distance, player or AI alike. In all-vs-all the caller passes every
+  // other tank; in team mode it passes only the enemy team, which is the
+  // whole of team-awareness here — friendly fire is still ON, so a
+  // teammate this never aimed at can still die to its ricochet.
   //
   // Which opponent to target stays on the ~0.8s reaction cadence (the
   // "casual" trait). Which waypoint to steer toward is refreshed every
