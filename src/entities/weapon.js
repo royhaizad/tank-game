@@ -90,9 +90,13 @@ Weapons.defs = {
   },
 
   // Not fired — picking it up grants a 6s bubble and leaves the tank on
-  // the base cannon (see Tank.equipWeapon). Drawback: it only deflects
-  // OTHER tanks' bullets; your own ricochet still kills you through it
-  // (GAME_SPEC.md section 4), and 6s is short.
+  // the base cannon (see Tank.equipWeapon). Deflects ANY bullet, including
+  // its own wearer's returning ricochet (GAME_SPEC.md section 4); an
+  // enemy's laser is absorbed the same way, but a mine still kills on
+  // contact regardless (see mine.js), and the wearer's OWN laser still
+  // hits them (see laser.js) — the shield only ever protects against
+  // someone/something else's shot when it comes to lasers. Drawback: 6s
+  // is short, and it offers no offense of its own.
   shield: {
     name: 'Shield',
     color: '#5bc8f5',

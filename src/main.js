@@ -179,10 +179,10 @@ function updateMatch(dt) {
       const dx = bullet.x - entry.tank.x;
       const dy = bullet.y - entry.tank.y;
 
-      // A shield deflects other tanks' bullets off the bubble surface, but
-      // never your own shot — your own ricochet still kills you through it
-      // (GAME_SPEC.md section 4), which is what keeps the shield honest.
-      const shielded = entry.tank.hasShield() && bullet.owner !== entry.tank;
+      // A shield deflects ANY bullet off the bubble surface, including its
+      // own wearer's returning ricochet (GAME_SPEC.md section 4) — a real
+      // mirror, not just an enemy-only ward.
+      const shielded = entry.tank.hasShield();
       const hitDistance = bullet.radius + (shielded ? entry.tank.shieldRadius : entry.tank.radius);
       if (dx * dx + dy * dy > hitDistance * hitDistance) return;
 

@@ -89,7 +89,7 @@ All power-up state resets every match (see section 10).
 | **Gatling Gun** | Fires continuously while held (~0.09s between rounds, so a held burst empties in ~1.4s), normal bounce physics per bullet, all 15 rounds can be in flight at once | 15 rounds |
 | **Shotgun** | 5-pellet spread in a narrow cone (~0.42 rad), shorter range — pellets expire after ~0.8s (~2 cells) | 3 shots |
 | **Homing Missile** | Travels straight 1 second, then curves toward the nearest tank at a capped turn rate — nearest explicitly includes its own shooter, so an overshoot can come back for you | 1 shot |
-| **Shield** | Visible bubble for 6 seconds that deflects other tanks' bullets off its surface (mirror angle, counts as a bounce) and absorbs a laser beam. Not a weapon: picking it up grants the bubble and leaves the tank on its base cannon. Your OWN shot still kills you through your own shield | — |
+| **Shield** | Visible bubble for 6 seconds that deflects ANY bullet off its surface (mirror angle, counts as a bounce) — including the wearer's own returning ricochet — and absorbs an enemy's laser beam (the wearer's own laser still hits them; see the Laser row). Not a weapon: picking it up grants the bubble and leaves the tank on its base cannon | — |
 | **Mine** | Dropped under the tank (usable even nosed against a wall), visible 1 second then invisible to everyone including its owner, kills ANY tank that touches it. Won't kill its own dropper until that tank has driven clear of it once — otherwise dropping one while stationary is just suicide — but will kill them if they drive back over it | 3 mines |
 | **Laser** | Instant-hit straight beam. Passes through exactly 1 thin interior wall, stopped dead by the thick outer boundary. A dotted aim-preview line is drawn for **every** player to see the whole time a laser is equipped; firing locks the origin and angle, then charges 0.5s before the beam lands, so turning to track a target after committing does nothing | 1 shot |
 
@@ -98,9 +98,10 @@ All power-up state resets every match (see section 10).
 this balance in any future power-up added. Which drawback each one carries:
 gatling — 15 bouncing rounds loose in a maze is the fastest way to shoot
 yourself; shotgun — useless past ~2 cells; missile — homes on the nearest
-tank, shooter included; shield — 6s only, and never protects against your
-own ricochet; mine — invisible to you too, and lethal to you on the way
-back; laser — a telegraphed aim line plus a locked-in 0.5s wind-up.
+tank, shooter included; shield — only 6s, and purely defensive (no
+offense of its own, and a mine or your own laser still gets through);
+mine — invisible to you too, and lethal to you on the way back; laser —
+a telegraphed aim line plus a locked-in 0.5s wind-up.
 
 **Ammo/rate overrides:** a picked-up weapon may override the tank's own
 firing limits (in-flight bullet cap, cooldown, and the hold-to-repeat
