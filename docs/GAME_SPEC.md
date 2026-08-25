@@ -443,12 +443,21 @@ drawing.
 - Every award **explains itself on hover** — a tooltip describing what it
   actually measures, since half the titles are jokes rather than
   self-evident labels.
-- **Ties are shared, not broken** — two tanks on equal kills both hold
-  "Most Deadly".
+- **Exactly one name per award.** If two tanks are genuinely level on the
+  value an award measures (e.g. both on 3 kills for Most Deadly), the
+  award is **suppressed entirely** that session rather than crediting
+  either one — no award ever reads as a list of names.
 - An award only appears when it says something. Awards that every tank
   would qualify for (everyone on zero kills at session start) are
   suppressed, and nothing at all is shown until a match has produced some
   kills, deaths, or wins.
+
+**Reveal.** Awards are shown one at a time, credits-style, rather than as a
+static list — each one fades in, holds briefly, then the next takes its
+place. This plays on both the Result Screen (top two or three) and the
+Awards modal (the full set). A click, or any key press, immediately
+advances to the next award for anyone who doesn't want to wait out the
+pace; once every applicable award has been shown, the sequence just stops.
 
 | Award | Held by |
 |---|---|
@@ -468,20 +477,34 @@ drawing.
 That order is also the **priority order**: the Result Screen shows only the
 first two or three that currently apply, so the rare and funny ones outrank
 the routine ones. The full list lives in the awards modal, opened from the
-Scoreboard (section 9.1).
+Scoreboard (section 9.1). "Held by" in the table above is aspirational —
+in practice an award only shows when exactly one tank qualifies for it,
+per the tie rule above.
 
 ### 9.4 Custom Names
 
 Every tank slot (P1–P3, AI1–AI3) and both teams can be renamed.
 
-- **Tanks** are renamed on the Mission Briefing screen, on that tank's own
-  row; **teams** on the Team Setup screen, by clicking the team's heading.
+- **Tanks** are renamed on the Mission Briefing screen — the name field
+  sits directly after that tank's own label ("PLAYER 1  [Izzad]" /
+  "AI 1  [Bolt]"), not floating above it. **Teams** are renamed on the Team
+  Setup screen, by clicking the team's heading.
 - Names are capped at **8 characters** — enough for a first name, short
   enough that labels above two nearby tanks don't collide on the maze.
 - Text entry is drawn on the canvas, using the same "click it, then press
   keys" idiom as key rebinding, because this game has no DOM UI. Typing and
-  Backspace only: **Enter** commits, **Escape** cancels, and clearing the
-  field restores the default name.
+  Backspace only; three ways to finish an edit:
+  - **Enter**, or clicking the small checkmark button inside the field's
+    right edge — both commit immediately, no confirmation needed.
+  - **Escape** — cancels immediately, no confirmation needed.
+  - **Clicking anything else** (another field, any button) while the text
+    actually changed — swallows that click and asks **Keep / Discard**
+    first. The click that triggered the dialog is *not* carried out
+    afterward; the user clicks it again once the name is resolved. If
+    nothing was actually changed, clicking away just closes the edit
+    silently and lets that click proceed normally.
+- Clearing the field (Backspace to empty, then commit) restores the default
+  name (P1, Team 1, etc).
 - A custom name is **display only**. Stats stay keyed by slot label
   internally, so renaming P1 to "Izzad" keeps that slot's existing history
   rather than starting a new row, and Reset Stats never clears a name.

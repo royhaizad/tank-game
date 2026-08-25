@@ -37,7 +37,16 @@ let awaitingRebind = null; // { playerIndex, action } while waiting for a keypre
 let scoreboardOpen = false; // Scoreboard modal (tank + team tables), over Briefing or the Result screen
 let awardsOpen = false; // Awards modal, opened from the Scoreboard modal and drawn over it
 let resetConfirmOpen = false; // Yes/No confirmation over the Scoreboard modal, before stats are wiped
-let editingName = null; // { kind: 'tank'|'team', key, buffer } while typing a name, per GAME_SPEC.md 9.4
+let editingName = null; // { kind: 'tank'|'team', key, buffer, original } while typing a name, per GAME_SPEC.md 9.4
+let pendingNameConfirm = null; // the just-abandoned editingName, while the Keep/Discard dialog is up
+
+// Credits-scene award reveal (GAME_SPEC.md section 9.3): each context that
+// shows awards paces its own reveal independently, so opening the Awards
+// modal from a fresh Result screen doesn't inherit its progress.
+const resultAwardsReveal = { index: 0, timer: 0 };
+const modalAwardsReveal = { index: 0, timer: 0 };
+const AWARD_REVEAL_HOLD = 1.5; // s an award holds before auto-advancing to the next
+const AWARD_FADE_DURATION = 0.3; // s the newest award takes to fade in
 
 let maze, matchTanks, bullets;
 
@@ -235,6 +244,7 @@ function updateMatch(dt) {
         ensureTeamStats(winner.team).wins++;
       }
       screen = 'result';
+      resetReveal(resultAwardsReveal, resultAwardsList().length);
     }
   } else if (survivors.length <= 1) {
     // winner.label is for display, so it's the custom name if there is one;
@@ -243,6 +253,7 @@ function updateMatch(dt) {
     winner = lastStanding ? { label: Menu.displayName(config, lastStanding.label), kind: lastStanding.kind } : null;
     if (lastStanding) ensureStats(lastStanding.label).wins++;
     screen = 'result';
+    resetReveal(resultAwardsReveal, resultAwardsList().length);
   }
 }
 
@@ -341,7 +352,7 @@ function handleRebindCapture() {
 // Escape to cancel; there's no caret movement, selection, or paste.
 function startNameEdit(kind, key, current) {
   awaitingRebind = null; // otherwise the rebind capture would eat the same keystrokes
-  editingName = { kind, key, buffer: current };
+  editingName = { kind, key, buffer: current, original: current };
 }
 
 function commitNameEdit() {
@@ -351,6 +362,46 @@ function commitNameEdit() {
   // Clearing the field is how you get the default (P1, Team 1) back.
   target[editingName.key] = name;
   editingName = null;
+}
+
+function resolvePendingNameConfirm(keep) {
+  if (!pendingNameConfirm) return;
+  if (keep) {
+    const target = pendingNameConfirm.kind === 'tank' ? config.tankNames : config.teamNames;
+    target[pendingNameConfirm.key] = pendingNameConfirm.buffer.trim();
+  }
+  pendingNameConfirm = null;
+}
+
+// Runs before every other click handler. While a name edit is in progress:
+//   - clicking the field itself again is a no-op (still editing it)
+//   - clicking its checkmark commits immediately, same as Enter
+//   - clicking anything else with no actual change just closes the edit
+//     silently and lets that click carry on to do whatever it normally does
+//   - clicking anything else WITH a change swallows that click and opens
+//     the Keep/Discard dialog instead — the original click's own action
+//     never runs; the user clicks it again once the name is resolved
+// Returns the id to keep processing, or null if this click has been fully
+// handled already.
+function interceptNameEditClick(clicked) {
+  if (!editingName) return clicked;
+
+  const ownFieldId = editingName.kind === 'tank' ? `rename:${editingName.key}` : `renameTeam:${editingName.key}`;
+  if (clicked === ownFieldId) return null;
+
+  if (clicked === 'confirmNameEdit') {
+    commitNameEdit();
+    return null;
+  }
+
+  if (editingName.buffer.trim() === editingName.original) {
+    editingName = null;
+    return clicked;
+  }
+
+  pendingNameConfirm = editingName;
+  editingName = null;
+  return null;
 }
 
 window.addEventListener('keydown', (e) => {
@@ -372,6 +423,55 @@ window.addEventListener('keydown', (e) => {
   // browser shortcut mid-edit; Input still sees it, which is harmless
   // outside a match.
   e.preventDefault();
+});
+
+// Session awards (GAME_SPEC.md section 9.3): the lists each reveal context
+// paces through, and the reveal-state helpers shared by both contexts.
+function resultAwardsList() {
+  return Awards.compute(stats).slice(0, 3);
+}
+
+function modalAwardsList() {
+  return Awards.compute(stats);
+}
+
+function resetReveal(state, total) {
+  state.index = total > 0 ? 1 : 0; // the first award starts fading in immediately, not after a full hold
+  state.timer = 0;
+}
+
+function advanceReveal(state, total, dt) {
+  if (state.index >= total) return;
+  state.timer += dt;
+  if (state.timer >= AWARD_REVEAL_HOLD) {
+    state.timer = 0;
+    state.index++;
+  }
+}
+
+function skipReveal(state, total) {
+  if (state.index < total) {
+    state.index++;
+    state.timer = 0;
+  }
+}
+
+function revealView(state) {
+  return { index: state.index, fade: Math.min(1, state.timer / AWARD_FADE_DURATION) };
+}
+
+// Any key advances the reveal, mirroring the click-to-skip region drawn
+// over the award list itself — lets a group hurry the credits along
+// instead of waiting out the full pace.
+window.addEventListener('keydown', (e) => {
+  if (editingName || pendingNameConfirm) return;
+  if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+
+  if (screen === 'result' && !scoreboardOpen) {
+    skipReveal(resultAwardsReveal, resultAwardsList().length);
+  } else if (awardsOpen) {
+    skipReveal(modalAwardsReveal, modalAwardsList().length);
+  }
 });
 
 function handleBriefingClick(clicked) {
@@ -419,6 +519,12 @@ function openScoreboard() {
 // overlays rather than screens, so they're handled before the screen switch
 // in handleMenuClick() — whatever is underneath must not also react.
 function handleOverlayClick(clicked) {
+  if (pendingNameConfirm) {
+    if (clicked === 'keepName') resolvePendingNameConfirm(true);
+    else if (clicked === 'discardName') resolvePendingNameConfirm(false);
+    return true;
+  }
+
   if (resetConfirmOpen) {
     if (clicked === 'yes') {
       resetStats(); // names are config, not stats, so they deliberately survive this
@@ -431,13 +537,16 @@ function handleOverlayClick(clicked) {
 
   if (awardsOpen) {
     if (clicked === 'closeAwards') awardsOpen = false;
+    else if (clicked === 'skipAwardReveal') skipReveal(modalAwardsReveal, modalAwardsList().length);
     return true;
   }
 
   if (scoreboardOpen) {
     if (clicked === 'closeStats') scoreboardOpen = false;
-    else if (clicked === 'viewAwards') awardsOpen = true;
-    else if (clicked === 'resetStats') resetConfirmOpen = true;
+    else if (clicked === 'viewAwards') {
+      awardsOpen = true;
+      resetReveal(modalAwardsReveal, modalAwardsList().length);
+    } else if (clicked === 'resetStats') resetConfirmOpen = true;
     return true;
   }
 
@@ -468,7 +577,12 @@ function handleTeamAssignClick(clicked) {
 }
 
 function handleMenuClick() {
-  const clicked = menu.consumeClick();
+  let clicked = menu.consumeClick();
+  if (!clicked) return;
+
+  // A name edit in progress gets first say — see interceptNameEditClick's
+  // own comment for what each outcome means.
+  clicked = interceptNameEditClick(clicked);
   if (!clicked) return;
 
   // The modal stack sits over every screen, so it gets first refusal on a
@@ -486,6 +600,7 @@ function handleMenuClick() {
     else if (clicked === 'changeDifficulty') screen = 'briefing';
     else if (clicked === 'title') screen = 'title';
     else if (clicked === 'viewStats') openScoreboard();
+    else if (clicked === 'skipAwardReveal') skipReveal(resultAwardsReveal, resultAwardsList().length);
   } else if (screen === 'paused') {
     if (clicked === 'resume') screen = 'match';
     else if (clicked === 'changeControls') screen = 'controls';
@@ -518,6 +633,8 @@ startLoop(
     handleRebindCapture();
     handleMenuClick();
     if (screen === 'match') updateMatch(dt);
+    if (screen === 'result' && !scoreboardOpen) advanceReveal(resultAwardsReveal, resultAwardsList().length, dt);
+    if (awardsOpen) advanceReveal(modalAwardsReveal, modalAwardsList().length, dt);
     Input.update();
   },
   () => {
@@ -542,16 +659,17 @@ startLoop(
     } else if (screen === 'controls') {
       menu.drawControlsScreen(ctx, canvas, config.playerCount, awaitingRebind);
     } else if (screen === 'result') {
-      menu.drawResultScreen(ctx, canvas, winner, stats, config);
+      menu.drawResultScreen(ctx, canvas, winner, stats, config, revealView(resultAwardsReveal));
     }
 
     // Drawn last, over whatever screen is behind them, in the same order
     // handleOverlayClick() consumes them.
     if (scoreboardOpen) menu.drawScoreboardModal(ctx, canvas, stats, teamStats, config);
-    if (awardsOpen) menu.drawAwardsModal(ctx, canvas, stats, config);
+    if (awardsOpen) menu.drawAwardsModal(ctx, canvas, stats, config, revealView(modalAwardsReveal));
     if (resetConfirmOpen) {
       menu.drawConfirmDialog(ctx, canvas, 'Reset every tally to zero? (Names are kept.)');
     }
+    if (pendingNameConfirm) menu.drawNameConfirmDialog(ctx, canvas, pendingNameConfirm);
 
     menu.drawTooltip(ctx, canvas);
   }

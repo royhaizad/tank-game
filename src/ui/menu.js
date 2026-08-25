@@ -344,20 +344,25 @@ class Menu {
     const colors = Menu.PLAYER_COLORS;
     const bindings = Input.playerBindings[playerIndex];
     const label = `P${playerIndex + 1}`;
+    const labelText = `PLAYER ${playerIndex + 1}`;
 
+    ctx.fillStyle = colors[playerIndex];
+    ctx.font = config ? 'bold 13px sans-serif' : 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(labelText, 20, config ? y - 4 : y);
+
+    // The name field sits right after its label, not above it — reads as
+    // one line ("PLAYER 1  [Izzad]") rather than a name floating over an
+    // unrelated header (GAME_SPEC.md section 9.4).
     if (config) {
+      const labelWidth = ctx.measureText(labelText).width;
       this._drawNameField(
         ctx,
-        { id: `rename:${label}`, x: 20, y: y - 16, w: 96, h: 16, nameKind: 'tank', nameKey: label },
+        { id: `rename:${label}`, x: 20 + labelWidth + 10, y: y - 15, w: 96, h: 16, nameKind: 'tank', nameKey: label },
         Menu.displayName(config, label),
         editingName
       );
     }
-
-    ctx.fillStyle = colors[playerIndex];
-    ctx.font = config ? 'bold 11px sans-serif' : 'bold 14px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(`PLAYER ${playerIndex + 1}`, config ? 124 : 20, config ? y - 4 : y);
 
     const actions = ['forward', 'backward', 'left', 'right', 'fire'];
     const shortLabels = ['Fwd', 'Back', 'Left', 'Right', 'Fire'];
@@ -386,18 +391,20 @@ class Menu {
   _drawAiBriefingRow(ctx, aiIndex, y, difficulty, config, editingName) {
     const colors = Menu.AI_COLORS;
     const label = `AI${aiIndex + 1}`;
+    const labelText = `AI ${aiIndex + 1}`;
 
+    ctx.fillStyle = colors[aiIndex];
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(labelText, 340, y - 4);
+
+    const labelWidth = ctx.measureText(labelText).width;
     this._drawNameField(
       ctx,
-      { id: `rename:${label}`, x: 340, y: y - 16, w: 96, h: 16, nameKind: 'tank', nameKey: label },
+      { id: `rename:${label}`, x: 340 + labelWidth + 10, y: y - 15, w: 96, h: 16, nameKind: 'tank', nameKey: label },
       Menu.displayName(config, label),
       editingName
     );
-
-    ctx.fillStyle = colors[aiIndex];
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(`AI ${aiIndex + 1}`, 444, y - 4);
 
     const tiers = [
       { id: 'easy', label: 'Easy' },
@@ -656,26 +663,64 @@ class Menu {
   // button id, main.js starts an edit and owns the keystrokes, and passes
   // its `editingName` back here so the field can show the live buffer and a
   // blinking caret. Shows the resolved display name the rest of the time.
+  // While active, a small checkmark button — its own id, 'confirmNameEdit' —
+  // sits inside the field's right edge; clicking it commits immediately,
+  // the same as Enter. Clicking anything else while a change is pending is
+  // handled in main.js as a Keep/Discard confirmation, not here.
   _drawNameField(ctx, btn, displayName, editing) {
     const active = editing && editing.kind === btn.nameKind && editing.key === btn.nameKey;
-    this.buttons.push(btn);
+    const checkSize = 14;
+
+    // Shrunk to exclude the checkmark's corner while it's showing, so the
+    // two never compete for the same click.
+    const fieldHit = { ...btn, w: active ? btn.w - checkSize - 4 : btn.w };
+    this.buttons.push(fieldHit);
 
     ctx.fillStyle = active ? '#c9903b' : '#3a3a3a';
     ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
     ctx.strokeStyle = active ? '#fff' : '#000';
     ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
 
+    const textRightEdge = active ? btn.x + btn.w - checkSize - 6 : btn.x + btn.w - 4;
     const text = active ? editing.buffer : displayName;
+
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(btn.x + 1, btn.y + 1, btn.w - 2, btn.h - 2);
+    ctx.clip();
     ctx.fillText(text, btn.x + 6, btn.y + btn.h / 2 + 1);
+    ctx.restore();
 
-    if (active && Math.floor(Date.now() / 400) % 2 === 0) {
-      ctx.fillRect(btn.x + 7 + ctx.measureText(text).width, btn.y + 3, 1, btn.h - 6);
+    if (active) {
+      const maxTextWidth = Math.max(0, textRightEdge - (btn.x + 6));
+      const textWidth = Math.min(ctx.measureText(text).width, maxTextWidth);
+      if (Math.floor(Date.now() / 400) % 2 === 0) {
+        ctx.fillRect(btn.x + 7 + textWidth, btn.y + 3, 1, btn.h - 6);
+      }
+
+      const checkBtn = {
+        id: 'confirmNameEdit',
+        x: btn.x + btn.w - checkSize - 3,
+        y: btn.y + (btn.h - checkSize) / 2,
+        w: checkSize,
+        h: checkSize
+      };
+      this.buttons.push(checkBtn);
+      ctx.fillStyle = '#3f9142';
+      ctx.fillRect(checkBtn.x, checkBtn.y, checkBtn.w, checkBtn.h);
+      ctx.strokeStyle = '#fff';
+      ctx.strokeRect(checkBtn.x, checkBtn.y, checkBtn.w, checkBtn.h);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✓', checkBtn.x + checkBtn.w / 2, checkBtn.y + checkBtn.h / 2 + 1);
     }
     ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
   }
 
   _drawToggleButton(ctx, btn) {
@@ -715,9 +760,10 @@ class Menu {
   // or null for a draw (simultaneous mutual kill), per GAME_SPEC.md 9/9.2.
   // The tables live in the Scoreboard modal now (one click away via the
   // button here); this screen instead carries the two or three sharpest
-  // session awards, which is what's worth reading the moment a match ends
-  // (GAME_SPEC.md section 9.3).
-  drawResultScreen(ctx, canvas, winner, stats, config) {
+  // session awards, revealed one at a time like a highlight reel
+  // (GAME_SPEC.md section 9.3). `reveal` is { index, fade } from main.js's
+  // per-frame timer — see drawAwardsModal for the other place it's used.
+  drawResultScreen(ctx, canvas, winner, stats, config, reveal) {
     // A team is a mix of humans and AI, so the player-green/AI-red split
     // doesn't apply to it — a team win gets its own team color instead.
     const bg = !winner
@@ -752,13 +798,28 @@ class Menu {
 
     this.buttons.forEach((btn) => this._drawButton(ctx, btn));
 
-    this._drawAwardList(ctx, canvas, Awards.compute(stats).slice(0, 3), config, 292, 'Session Awards');
+    const awards = Awards.compute(stats).slice(0, 3);
+    const awardsBottom = this._drawAwardList(ctx, canvas, awards, config, 292, 'Session Awards', reveal);
+
+    // Pushed after the real buttons above, so Rematch/etc. still win on any
+    // incidental overlap — this only catches clicks that land on the award
+    // area itself.
+    if (reveal && reveal.index < awards.length) {
+      this.buttons.push({ id: 'skipAwardReveal', x: 0, y: 272, w: canvas.width, h: Math.max(awardsBottom - 272 + 20, 0) });
+    }
   }
 
   // Shared by the Result screen (top three only) and the Awards modal (all
   // of them). Each line registers a hover target so drawTooltip() can
-  // explain what the award actually means.
-  _drawAwardList(ctx, canvas, awards, config, startY, heading) {
+  // explain what the award actually means. Per GAME_SPEC.md section 9.3,
+  // an award only ever has one holder (a real tie suppresses it entirely
+  // in Awards.compute), so there's no list-of-names to join here.
+  //
+  // `reveal` is { index, fade } — index is how many awards are on screen so
+  // far (the credits-scene reveal, driven by main.js's per-frame timer),
+  // fade is the newest one's fade-in progress (0-1). Pass null/undefined
+  // for a fully-shown, unanimated list.
+  _drawAwardList(ctx, canvas, awards, config, startY, heading, reveal) {
     const centerX = canvas.width / 2;
     let y = startY;
 
@@ -771,37 +832,49 @@ class Menu {
       y += 22;
       ctx.font = '11px sans-serif';
       ctx.fillStyle = '#bbb';
-      ctx.fillText('Play a match to start handing out awards.', centerX, y);
+      ctx.fillText('No awards to show yet.', centerX, y);
       return y;
     }
 
-    awards.forEach((award) => {
+    const revealCount = reveal ? Math.min(reveal.index, awards.length) : awards.length;
+    const visible = awards.slice(0, revealCount);
+
+    visible.forEach((award, i) => {
       y += 26;
-      const holders = award.holders.map((label) => Menu.displayName(config, label)).join(', ');
+      // Only the most-recently-revealed line is still fading in; everything
+      // before it is already settled at full opacity.
+      const alpha = reveal && i === revealCount - 1 ? reveal.fade : 1;
+      const holderName = Menu.displayName(config, award.holders[0]);
 
       ctx.font = 'bold 12px sans-serif';
       const titleText = `${award.title}: `;
       const titleWidth = ctx.measureText(titleText).width;
       ctx.font = '12px sans-serif';
-      const holderWidth = ctx.measureText(holders).width;
-
+      const holderWidth = ctx.measureText(holderName).width;
       const left = centerX - (titleWidth + holderWidth) / 2;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
       ctx.textAlign = 'left';
       ctx.font = 'bold 12px sans-serif';
       ctx.fillStyle = Menu.AWARD_TITLE_COLOR;
       ctx.fillText(titleText, left, y);
       ctx.font = '12px sans-serif';
       ctx.fillStyle = '#fff';
-      ctx.fillText(holders, left + titleWidth, y);
+      ctx.fillText(holderName, left + titleWidth, y);
+      ctx.restore();
 
-      this.hoverTargets.push({
-        x: left,
-        y: y - 12,
-        w: titleWidth + holderWidth,
-        h: 17,
-        tooltip: award.tooltip
-      });
+      // Only awards actually on screen should be hoverable.
+      this.hoverTargets.push({ x: left, y: y - 12, w: titleWidth + holderWidth, h: 17, tooltip: award.tooltip });
     });
+
+    if (reveal && revealCount < awards.length) {
+      y += 20;
+      ctx.textAlign = 'center';
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = '#8fa383';
+      ctx.fillText('Click or press any key for the next award', centerX, y);
+    }
 
     ctx.textAlign = 'center';
     return y;
@@ -842,8 +915,10 @@ class Menu {
   }
 
   // Drawn over the Scoreboard modal: every award that currently applies,
-  // each explaining itself on hover (GAME_SPEC.md section 9.3).
-  drawAwardsModal(ctx, canvas, stats, config) {
+  // each explaining itself on hover, revealed one at a time like the Result
+  // screen's highlight reel (GAME_SPEC.md section 9.3). `reveal` is the
+  // same { index, fade } shape drawResultScreen takes.
+  drawAwardsModal(ctx, canvas, stats, config, reveal) {
     // Nearly opaque: this sits on top of the Scoreboard modal, and two
     // translucent layers of table would show through each other.
     ctx.fillStyle = 'rgba(0, 0, 0, 0.96)';
@@ -859,11 +934,18 @@ class Menu {
     ctx.fillText('Hover an award to see what it means', centerX, 56);
 
     this.buttons = [];
-    const bottom = this._drawAwardList(ctx, canvas, Awards.compute(stats), config, 80, 'This Session');
+    const awards = Awards.compute(stats);
+    const bottom = this._drawAwardList(ctx, canvas, awards, config, 80, 'This Session', reveal);
 
     const closeButton = { id: 'closeAwards', x: centerX - 90, y: Math.max(bottom + 24, 400), w: 180, h: 38, label: 'Close' };
     this.buttons.push(closeButton);
     this._drawButton(ctx, closeButton);
+
+    // Pushed after Close, so it still wins on any incidental overlap once
+    // every award is on screen at once.
+    if (reveal && reveal.index < awards.length) {
+      this.buttons.push({ id: 'skipAwardReveal', x: 0, y: 60, w: canvas.width, h: Math.max(bottom - 60 + 40, 0) });
+    }
   }
 
   // Shared table renderer for the Result screen and the Briefing stats
@@ -989,6 +1071,31 @@ class Menu {
     const yesButton = { id: 'yes', x: canvas.width / 2 - 130, y: canvas.height / 2, w: 120, h: 50, label: 'Yes' };
     const noButton = { id: 'no', x: canvas.width / 2 + 10, y: canvas.height / 2, w: 120, h: 50, label: 'No' };
     this.buttons = [yesButton, noButton];
+    this.buttons.forEach((btn) => this._drawButton(ctx, btn));
+  }
+
+  // Shown when the user clicks away from an in-progress name edit that
+  // actually changed something (GAME_SPEC.md section 9.4) — asks whether to
+  // keep the new name or discard it and revert to what it was. Unlike Enter
+  // or the field's own checkmark, this exists because the click that
+  // triggered it had its own, different intent (a button, another field),
+  // which this dialog swallows rather than carrying out.
+  drawNameConfirmDialog(ctx, canvas, pending) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const kindLabel = pending.kind === 'team' ? 'team' : 'tank';
+    const fallback = pending.kind === 'team' ? `Team ${pending.key}` : pending.key;
+    const newName = pending.buffer.trim() || fallback;
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Rename this ${kindLabel} to "${newName}"?`, canvas.width / 2, canvas.height / 2 - 40);
+
+    const keepButton = { id: 'keepName', x: canvas.width / 2 - 130, y: canvas.height / 2, w: 120, h: 50, label: 'Keep' };
+    const discardButton = { id: 'discardName', x: canvas.width / 2 + 10, y: canvas.height / 2, w: 120, h: 50, label: 'Discard' };
+    this.buttons = [keepButton, discardButton];
     this.buttons.forEach((btn) => this._drawButton(ctx, btn));
   }
 

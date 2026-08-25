@@ -117,8 +117,10 @@ class Awards {
 
   // stats: label -> { kills, deaths, wins, selfKills, teamKills } from
   // src/main.js. Returns [{ id, title, tooltip, holders: [label, ...] }] in
-  // priority order, holding only the awards that currently apply. Ties are
-  // kept rather than broken — two tanks on equal kills genuinely share it.
+  // priority order, holding only the awards that currently apply. Each
+  // award names exactly one tank — a real tie (two tanks level on the same
+  // value) suppresses the award entirely rather than crediting either one,
+  // since only one name can headline it.
   static compute(stats) {
     const rows = Object.keys(stats).map((label) => ({ label, ...stats[label] }));
     if (rows.length === 0) return [];
@@ -130,7 +132,7 @@ class Awards {
       title: definition.title,
       tooltip: definition.tooltip,
       holders: definition.pick(rows).map((row) => row.label)
-    })).filter((award) => award.holders.length > 0);
+    })).filter((award) => award.holders.length === 1);
   }
 
   // Deaths of 0 would divide by zero, so an unkilled tank is ranked on its

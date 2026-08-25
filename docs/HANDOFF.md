@@ -99,7 +99,20 @@ together, so the next session doesn't have to re-derive it:
 - `src/ui/awards.js` is pure computation — it takes `stats` and returns award
   objects with slot labels, and never draws or resolves display names. Adding
   an award is one entry in `Awards.DEFINITIONS`, ordered by priority since the
-  Result screen slices the top few off the front.
+  Result screen slices the top few off the front. `compute()` filters to
+  `holders.length === 1`, so a genuine tie drops the award for that session
+  rather than crediting more than one name.
+- **Name-edit click interception** (`interceptNameEditClick()` in main.js)
+  runs before every other click handler. It's the reason a click on a button
+  while a name is unsaved doesn't fire that button's own action — the click
+  is swallowed and a Keep/Discard dialog (`pendingNameConfirm`) opens instead;
+  the original click has to be repeated once that resolves. An unchanged edit
+  skips the dialog and lets the click through untouched.
+- **Award reveal** (`resultAwardsReveal`/`modalAwardsReveal` in main.js) is a
+  simple `{ index, timer }` per context, ticked in the main loop and reset
+  whenever that context is (re)entered. `index` starts at 1 (not 0) the
+  instant a context opens, so the first award fades in immediately rather
+  than waiting out a full hold first.
 
 ## Known gaps
 

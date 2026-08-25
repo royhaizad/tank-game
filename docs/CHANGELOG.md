@@ -2,6 +2,8 @@
 
 One-line entries per game mechanic/feature change, newest first. See `CLAUDE.md`
 "Keeping Docs in Sync" for when to add to this file.
+- 2026-08-25 — Awards now show exactly one name each — a genuine tie suppresses the award for that session instead of listing multiple names — and reveal one at a time, credits-style (fade in, hold, next), on both the Result screen and the Awards modal; click or any key skips ahead.
+- 2026-08-25 — Name editing: the field now sits after its tank/team's label instead of above it; a checkmark button inside the field commits like Enter; clicking away from an unsaved change now asks Keep/Discard instead of committing or discarding silently (unchanged edits still close without asking).
 - 2026-08-24 — Custom names: every tank slot and both teams can be renamed (8 characters, typed on the canvas — click a name, type, Enter commits, Escape cancels, empty restores the default). Names are display-only, so a renamed tank keeps its stat history and Reset Stats never clears a name.
 - 2026-08-24 — "Session Stats" is now the **Scoreboard**: the tank table is ranked by wins (kills, then fewest deaths, break ties), a separate team Win/Kill/Death table sits below it, and Reset Stats asks for confirmation before wiping anything. The full tables moved off the Result screen into the modal, reached by a new Scoreboard button.
 - 2026-08-24 — Added session awards (`src/ui/awards.js`): 12 tongue-in-cheek titles including Most Deadly, Victim of the Situation, Pacifist, Team Killer, Own Goal Enthusiast, Sharpshooter and Cannon Fodder, each explaining itself on hover. The Result screen shows the two or three punchiest; the rest live in an Awards modal off the Scoreboard. Self-kills and team-kills are now tracked per tank to feed them.
