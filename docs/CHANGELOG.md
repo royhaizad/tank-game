@@ -2,6 +2,7 @@
 
 One-line entries per game mechanic/feature change, newest first. See `CLAUDE.md`
 "Keeping Docs in Sync" for when to add to this file.
+- 2026-08-31 — Added a small team-colored flag icon (`Menu.drawFlagIcon`) next to every place a team's name is written out as text: the Team Setup heading, the Result screen's "`<team>` Wins!" banner, and the Scoreboard's team rows. Same pole-and-pennant shape as the in-match on-tank flag, just sized for inline text.
 - 2026-08-30 — Shield no longer activates the instant it's picked up: it now arms a charge (HUD shows 🛡️(ready)) that only pops into the actual 10s bubble the next time fire is pressed, whether or not that press's shot goes through (Tank.tryActivateShieldCharge, called from tryFire). Added a distinct activation sound (playShieldActivate).
 - 2026-08-30 — Fixed a bug where an active shield failed to protect against mine shrapnel. Shrapnel is now absorbed at the shield bubble's edge (like an enemy's laser) rather than passing straight through to hit the wearer.
 - 2026-08-30 — Mine shrapnel now sprays in fully random directions instead of 8 evenly-spaced angles with a small jitter.
