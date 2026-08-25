@@ -225,8 +225,12 @@ bullets at close range.
    for the multi-player case). Per player the HUD shows a weapon icon, the
    weapon name, and either shots remaining (a picked-up weapon) or bullets
    in flight (the base cannon, which never runs out), plus a 🛡️ countdown
-   while a shield is up. Weapon icons are placeholder color swatches until
-   the `icon_*` sprites land.
+   while a shield is up. Weapon icons are small procedurally-drawn shapes
+   (one per weapon — three barrels for gatling, a pellet fan for shotgun,
+   a finned dart for missile, a badge outline for shield, a spiked ball
+   for mine, a lightning bolt for laser) standing in for the real `icon_*`
+   sprites until those land; the same icon draws in the HUD and on a
+   map crate, which also shows the weapon's name as a readable label.
 4. **Result Screen** — "`<label>` Wins!" banner (green if the winner is a
    player, red if the winner is an AI tank; "Draw" in the rare simultaneous-
    kill case — see section 9), buttons:
@@ -288,8 +292,19 @@ starts.
 ## 8. Audio
 
 Light chiptune background loop during matches. SFX: cannon fire, wall
-bounce ping, explosion, power-up pickup chime, victory/defeat jingles.
-Mute toggle in pause menu.
+bounce ping, explosion, victory/defeat jingles — still unbuilt. Mute
+toggle in pause menu — still unbuilt.
+
+**Power-up SFX (built):** three distinct synthesized cues per
+GAME_SPEC.md section 4's crate lifecycle — a soft ambient chime when a
+crate **appears**, a brighter chime when a tank **equips** one (drives
+over it), and a weapon-specific sound the instant a tank **uses** one
+(fires it): a short tick for the gatling, a noise-burst blast for the
+shotgun, a rising whoosh for the missile launch, a low thunk for the mine
+drop, and a rising sweep timed to the laser's charge for the laser. The
+base cannon has no "use" sound — it isn't a power-up. The shield has no
+"use" sound either — equipping it is its only action, already covered by
+the equip chime.
 
 ---
 

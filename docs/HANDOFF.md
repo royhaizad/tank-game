@@ -69,11 +69,24 @@ Nothing currently queued — see Known gaps below for candidates.
 Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **pixel art pass** (#7),
 and **audio pass** (#8) remain. Power-ups (#5) are now built.
 
-- **Power-up sprites are placeholders.** Crates, mines, the shield bubble and the HUD
-  weapon icons all draw as plain rects/circles/color swatches. The real assets
-  (`weapon_crate`, `land_mine`, `shield_bubble`, `icon_*`) exist but are oversized raw
-  exports being resized on `feat/sprites` — swapping them in should only need
-  `Crate.draw`, `Mine.draw`, `Tank._drawShield` and `Hud`'s swatch.
+- **Power-up sprites are placeholders.** The crate box, mine body, and shield bubble
+  are still plain rects/circles. The weapon icon itself is a step up from a flat
+  swatch now — `Weapons.drawIcon` (`weapon.js`) procedurally draws a distinct bold
+  shape per weapon (three bars for gatling, a pellet fan for shotgun, a finned dart
+  for missile, a badge outline for shield, a spiked ball for mine, a lightning bolt
+  for laser), shared by both `Crate.draw` (with a readable name label underneath) and
+  `Hud.draw`. The real assets (`weapon_crate`, `land_mine`, `shield_bubble`, `icon_*`)
+  exist but are oversized raw exports being resized on `feat/sprites` — swapping them
+  in should only need `Crate.draw`, `Mine.draw`, `Tank._drawShield`, and replacing
+  `Weapons.drawIcon`'s canvas-drawn shapes with `drawImage` calls.
+- **Power-up SFX are synthesized, no audio files.** Three events per weapon lifecycle
+  (`AudioEngine` in `engine/audio.js`): `playPowerupSpawn` (crate appears),
+  `playPowerupEquip` (renamed from `playPickupChime` — a tank drives over one), and a
+  weapon-specific "use" sound dispatched from `WeaponFire._playFireSound` in
+  `weapon.js` (`playGatlingShot`/`playShotgunBlast`/`playMissileLaunch`/
+  `playMineDrop`/`playLaserFire`) the instant that weapon actually fires. Cannon and
+  shield have no "use" sound by design — cannon isn't a power-up, and equipping the
+  shield is its only action.
 - **Easy AI doesn't seek crates.** It picks up whatever it drives over and fires it
   through the normal path, but doesn't path toward crates or contest them — that's a
   Medium/Hard trait per GAME_SPEC.md section 5 and isn't built.

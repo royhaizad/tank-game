@@ -7,8 +7,10 @@
 //
 // Sprite note: assets/sprites/weapon_crate.png and the icon_* set exist but
 // are still raw oversized exports being resized on the feat/sprites branch,
-// so everything here draws placeholder rects for now. Swapping in sprites
-// later only needs to touch draw() here and Hud's weapon swatch.
+// so the crate box itself is a placeholder rect; the icon on top of it is
+// Weapons.drawIcon (weapon.js), a procedurally-drawn placeholder shared
+// with the HUD. Swapping in real sprites later only needs to touch draw()
+// here and Hud's icon call.
 class Crate {
   constructor(x, y, weaponType) {
     this.x = x;
@@ -36,10 +38,21 @@ class Crate {
     ctx.lineWidth = 2;
     ctx.strokeRect(-this.radius, -this.radius, this.radius * 2, this.radius * 2);
 
-    // Placeholder for the weapon icon sprite: a swatch in the weapon's color.
-    ctx.fillStyle = def.color;
-    ctx.fillRect(-5, -5, 10, 10);
+    Weapons.drawIcon(ctx, this.weaponType, 0, 0, this.radius * 1.4);
 
+    ctx.restore();
+
+    // Readable weapon-name label — fixed to this.y rather than the bob, and
+    // outlined for legibility against the grass, same treatment as the
+    // tank name labels drawn in main.js's drawMatchScene.
+    ctx.save();
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.strokeText(def.name, this.x, this.y - this.radius - 4);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(def.name, this.x, this.y - this.radius - 4);
     ctx.restore();
   }
 }
@@ -65,14 +78,16 @@ class CrateField {
     return CrateField.SPAWN_MIN + Math.random() * (CrateField.SPAWN_MAX - CrateField.SPAWN_MIN);
   }
 
-  // Ticks spawn timing and resolves pickups. Returns the entries that
-  // picked something up this frame, so the caller can play a chime.
+  // Ticks spawn timing and resolves pickups. Returns { pickups, spawned }
+  // so the caller can play the right sound for each — a crate appearing
+  // vs. a tank actually equipping one (GAME_SPEC.md section 4).
   update(dt, matchTanks) {
     this.crates.forEach((crate) => crate.update(dt));
 
+    let spawned = false;
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
-      if (this.crates.length < this.liveCap) this._spawn(matchTanks);
+      if (this.crates.length < this.liveCap) spawned = this._spawn(matchTanks);
       this.spawnTimer = this._rollSpawnDelay();
     }
 
@@ -85,7 +100,7 @@ class CrateField {
       return false;
     });
 
-    return pickups;
+    return { pickups, spawned };
   }
 
   _touches(crate, tank) {
@@ -98,6 +113,8 @@ class CrateField {
   // Picks a random cell that has no crate already and no tank sitting on
   // it, so a crate can never spawn directly under someone (which would
   // read as a free instant pickup rather than something to drive for).
+  // Returns whether a crate actually got placed (false if every cell was
+  // taken), so the caller knows whether to play the spawn sound.
   _spawn(matchTanks) {
     const candidates = [];
     for (let row = 0; row < this.maze.rows; row++) {
@@ -113,11 +130,12 @@ class CrateField {
         candidates.push(center);
       }
     }
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) return false;
 
     const spot = candidates[Math.floor(Math.random() * candidates.length)];
     const type = Weapons.PICKUP_TYPES[Math.floor(Math.random() * Weapons.PICKUP_TYPES.length)];
     this.crates.push(new Crate(spot.x, spot.y, type));
+    return true;
   }
 
   _cellCenter(row, col) {

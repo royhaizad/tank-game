@@ -129,6 +129,115 @@ Weapons.def = function (type) {
   return Weapons.defs[type] || Weapons.defs[Weapons.CANNON];
 };
 
+// A small procedurally-drawn icon per weapon type, in def.color, used by
+// both the map crate (crate.js) and the in-match HUD (ui/hud.js) so the
+// two stay visually consistent. Placeholder for the real icon_* sprites
+// (still being resized on feat/sprites) — deliberately bold, simple
+// shapes so they stay readable at the tiny HUD size (~10px) as well as
+// crate size (~20px). `size` is roughly the icon's bounding diameter.
+Weapons.drawIcon = function (ctx, type, cx, cy, size) {
+  const def = Weapons.def(type);
+  const r = size / 2;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = def.color;
+  ctx.strokeStyle = def.color;
+  ctx.lineWidth = Math.max(1, size * 0.12);
+
+  switch (type) {
+    case Weapons.GATLING: {
+      // Three barrels.
+      const barW = size * 0.16;
+      const barH = size * 0.75;
+      for (let i = -1; i <= 1; i++) {
+        ctx.fillRect(i * size * 0.24 - barW / 2, -barH / 2, barW, barH);
+      }
+      break;
+    }
+
+    case Weapons.SHOTGUN: {
+      // A fanned spread of pellets.
+      const dots = 5;
+      for (let i = 0; i < dots; i++) {
+        const t = i / (dots - 1) - 0.5; // -0.5..0.5
+        const dx = t * size * 0.75;
+        const dy = -r * 0.5 - Math.abs(t) * size * 0.25;
+        ctx.beginPath();
+        ctx.arc(dx, dy, size * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+
+    case Weapons.MISSILE: {
+      // Dart-shaped nose plus two tailfins.
+      ctx.beginPath();
+      ctx.moveTo(0, -r);
+      ctx.lineTo(r * 0.5, r * 0.6);
+      ctx.lineTo(-r * 0.5, r * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(-r * 0.75, r * 0.25, r * 0.35, r * 0.4);
+      ctx.fillRect(r * 0.4, r * 0.25, r * 0.35, r * 0.4);
+      break;
+    }
+
+    case Weapons.SHIELD: {
+      // A rounded badge/shield outline.
+      ctx.beginPath();
+      ctx.moveTo(0, -r);
+      ctx.quadraticCurveTo(r, -r * 0.6, r * 0.8, 0);
+      ctx.quadraticCurveTo(r * 0.6, r * 0.8, 0, r);
+      ctx.quadraticCurveTo(-r * 0.6, r * 0.8, -r * 0.8, 0);
+      ctx.quadraticCurveTo(-r, -r * 0.6, 0, -r);
+      ctx.closePath();
+      ctx.globalAlpha = 0.35;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+      break;
+    }
+
+    case Weapons.MINE: {
+      // A spiked ball, echoing Mine.draw's own look.
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+      [0, 45, 90, 135, 180, 225, 270, 315].forEach((deg) => {
+        const a = (deg * Math.PI) / 180;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55);
+        ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        ctx.stroke();
+      });
+      break;
+    }
+
+    case Weapons.LASER: {
+      // A lightning-bolt reads as "energy weapon" at a glance, even tiny.
+      ctx.beginPath();
+      ctx.moveTo(r * 0.15, -r);
+      ctx.lineTo(-r * 0.55, r * 0.1);
+      ctx.lineTo(0, r * 0.1);
+      ctx.lineTo(-r * 0.15, r);
+      ctx.lineTo(r * 0.55, -r * 0.1);
+      ctx.lineTo(0, -r * 0.1);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+
+    default: // cannon, or any unrecognized type — a plain dot
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+  }
+
+  ctx.restore();
+};
+
 // Turns a fire input into whatever the currently equipped weapon actually
 // produces, pushing into the match's live bullet/mine/beam collections.
 // Ammo is consumed here, so main.js never has to know what a given weapon
@@ -168,6 +277,24 @@ const WeaponFire = {
         break;
     }
 
+    // Read BEFORE consumeAmmo(), which can revert tank.weapon to cannon
+    // right here if this was the weapon's last shot — dispatching after
+    // that would silently skip the sound on every weapon's final use.
+    WeaponFire._playFireSound(tank.weapon);
     tank.consumeAmmo();
+  },
+
+  // "A tank uses a powerup" SFX, per weapon. Shield never reaches this —
+  // equipping it is its only action (see Tank.equipWeapon), covered by
+  // AudioEngine.playPowerupEquip instead. Cannon has no sound here on
+  // purpose: it isn't a powerup.
+  _playFireSound(type) {
+    switch (type) {
+      case Weapons.GATLING: AudioEngine.playGatlingShot(); break;
+      case Weapons.SHOTGUN: AudioEngine.playShotgunBlast(); break;
+      case Weapons.MISSILE: AudioEngine.playMissileLaunch(); break;
+      case Weapons.MINE: AudioEngine.playMineDrop(); break;
+      case Weapons.LASER: AudioEngine.playLaserFire(); break;
+    }
   }
 };

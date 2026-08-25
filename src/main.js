@@ -151,7 +151,9 @@ function updateMatch(dt) {
   // Power-ups, per GAME_SPEC.md section 4. Crates handle their own spawn
   // cadence and pickups; mines and laser beams report who they caught so
   // those kills go through the same destroyTank() path as bullet kills.
-  if (crates.update(dt, matchTanks).length > 0) AudioEngine.playPickupChime();
+  const crateEvents = crates.update(dt, matchTanks);
+  if (crateEvents.spawned) AudioEngine.playPowerupSpawn();
+  if (crateEvents.pickups.length > 0) AudioEngine.playPowerupEquip();
 
   mines.update(dt, matchTanks).forEach(({ victim, owner }) => destroyTank(victim, owner));
 

@@ -3,11 +3,11 @@
 // 9.1, icons per HANDOFF.md decision: 🏆 win, 🔫 kill, 💀 death — same
 // order and icons as the Result screen scoreboard in src/ui/menu.js).
 //
-// The weapon "icon" is a placeholder color swatch for now — the real
-// icon_* sprites (assets/sprites/) are still oversized raw exports being
-// resized on the feat/sprites branch.
+// The weapon icon is Weapons.drawIcon (weapon.js) — a small procedurally-
+// drawn placeholder shared with the map crate, standing in for the real
+// icon_* sprites (assets/sprites/) until they're resized on feat/sprites.
 class Hud {
-  static SWATCH = 8; // px, placeholder weapon icon
+  static ICON_SIZE = 10; // px
 
   // playerEntries: match entries with kind === 'player', in player order.
   // stats: label -> { kills, deaths, wins } session tallies (src/main.js).
@@ -23,12 +23,9 @@ class Hud {
     let x = 8;
     playerEntries.forEach((entry) => {
       const tank = entry.tank;
-      const def = Weapons.def(tank.weapon);
 
-      // Weapon swatch (stands in for the weapon icon sprite).
-      ctx.fillStyle = def.color;
-      ctx.fillRect(x, midY - Hud.SWATCH / 2, Hud.SWATCH, Hud.SWATCH);
-      x += Hud.SWATCH + 4;
+      Weapons.drawIcon(ctx, tank.weapon, x + Hud.ICON_SIZE / 2, midY, Hud.ICON_SIZE);
+      x += Hud.ICON_SIZE + 4;
 
       // The shield icon needs its U+FE0F variation selector — without it,
       // U+1F6E1 falls back to a faint monochrome outline instead of the
