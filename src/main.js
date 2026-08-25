@@ -14,6 +14,26 @@ const config = {
   aiDifficulties: ['easy', 'easy', 'easy'] // per AI slot; only the first aiCount are used
 };
 
+// AI difficulty ladder, per GAME_SPEC.md section 5: one factory per built
+// tier. A tier missing from this table is one that isn't built yet — the
+// Mission Briefing greys those out (see menu.js) and handleBriefingClick
+// refuses to select them.
+const AI_TIERS = {
+  easy: () => new EasyAI(),
+  medium: () => new MediumAI(),
+  hard: () => new HardAI()
+};
+
+// Ammo limits (maxActiveBullets / fireCooldownDuration — see Tank fields)
+// are normally owned by the AI class's own constructor (see EasyAI,
+// HardAI) so each tier's numbers live in exactly one place. MediumAI
+// deliberately doesn't declare its own (see its file header: ammo is "a
+// property of the Tank, not the brain"), so its numbers are overridden
+// here instead, per GAME_SPEC.md section 5.
+const AI_AMMO_OVERRIDES = {
+  medium: { maxActiveBullets: 2, fireCooldownDuration: 0.6 }
+};
+
 let winner = null; // { label, kind } of whoever's left standing, or null for a draw
 let pendingConfirmAction = null; // 'rematch' | 'changeDifficulty' | 'quitToTitle', while screen === 'pauseConfirm'
 let awaitingRebind = null; // { playerIndex, action } while waiting for a keypress, on briefing or controls screens
@@ -39,17 +59,6 @@ function resetStats() {
 
 const PLAYER_AUTO_FIRE_INTERVAL = 0.5; // s, between auto-fired shots while the fire key is held
 
-// The AI difficulty ladder, per GAME_SPEC.md section 5. One row per built
-// tier: which brain drives the tank, and that tier's ammo limits (those
-// live on the Tank, not the AI, so they're applied at spawn below). A tier
-// missing from this table is one that isn't built yet — the Mission
-// Briefing greys those out (see menu.js) and handleBriefingClick refuses
-// to select them, so there's a single place to add Hard later.
-const AI_TIERS = {
-  easy: { Ctor: EasyAI, maxActiveBullets: 1, fireCooldownDuration: 1 },
-  medium: { Ctor: MediumAI, maxActiveBullets: 2, fireCooldownDuration: 0.6 }
-};
-
 function activeBulletCount(tank) {
   return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
 }
@@ -70,11 +79,15 @@ function startMatch() {
 
   for (let i = 0; i < config.aiCount; i++) {
     const spawn = spawnPoints[spawnIndex++];
-    const tier = AI_TIERS[config.aiDifficulties[i]] || AI_TIERS.easy;
+    const tierId = config.aiDifficulties[i];
+    const makeAI = AI_TIERS[tierId] || AI_TIERS.easy;
+    const ai = makeAI();
+    const ammoOverride = AI_AMMO_OVERRIDES[tierId];
     const tank = new Tank(spawn.x, spawn.y, Menu.AI_COLORS[i]);
-    tank.maxActiveBullets = tier.maxActiveBullets; // AI ammo override, per GAME_SPEC.md section 5
-    tank.fireCooldownDuration = tier.fireCooldownDuration; // s, per GAME_SPEC.md section 5
-    matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai: new tier.Ctor() });
+    // AI ammo override, per GAME_SPEC.md section 5 — each tier's own limits.
+    tank.maxActiveBullets = ammoOverride ? ammoOverride.maxActiveBullets : ai.maxActiveBullets;
+    tank.fireCooldownDuration = ammoOverride ? ammoOverride.fireCooldownDuration : ai.fireCooldownDuration;
+    matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai });
   }
 
   matchTanks.forEach((entry) => ensureStats(entry.label));
