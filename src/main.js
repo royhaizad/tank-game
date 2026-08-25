@@ -14,13 +14,24 @@ const config = {
   aiDifficulties: ['easy', 'easy', 'easy'] // per AI slot; only the first aiCount are used
 };
 
-// AI difficulty ladder, per GAME_SPEC.md section 5. A tier is just its AI
-// class; each class carries its own ammo limits (maxActiveBullets /
-// fireCooldownDuration), so adding a tier means adding one line here and
-// enabling its button in menu.js — nothing else in main.js changes.
+// AI difficulty ladder, per GAME_SPEC.md section 5: one factory per built
+// tier. A tier missing from this table is one that isn't built yet — the
+// Mission Briefing greys those out (see menu.js) and handleBriefingClick
+// refuses to select them.
 const AI_TIERS = {
   easy: () => new EasyAI(),
+  medium: () => new MediumAI(),
   hard: () => new HardAI()
+};
+
+// Ammo limits (maxActiveBullets / fireCooldownDuration — see Tank fields)
+// are normally owned by the AI class's own constructor (see EasyAI,
+// HardAI) so each tier's numbers live in exactly one place. MediumAI
+// deliberately doesn't declare its own (see its file header: ammo is "a
+// property of the Tank, not the brain"), so its numbers are overridden
+// here instead, per GAME_SPEC.md section 5.
+const AI_AMMO_OVERRIDES = {
+  medium: { maxActiveBullets: 2, fireCooldownDuration: 0.6 }
 };
 
 let winner = null; // { label, kind } of whoever's left standing, or null for a draw
@@ -68,12 +79,14 @@ function startMatch() {
 
   for (let i = 0; i < config.aiCount; i++) {
     const spawn = spawnPoints[spawnIndex++];
+    const tierId = config.aiDifficulties[i];
+    const makeAI = AI_TIERS[tierId] || AI_TIERS.easy;
+    const ai = makeAI();
+    const ammoOverride = AI_AMMO_OVERRIDES[tierId];
     const tank = new Tank(spawn.x, spawn.y, Menu.AI_COLORS[i]);
-    const tier = AI_TIERS[config.aiDifficulties[i]] || AI_TIERS.easy;
-    const ai = tier();
     // AI ammo override, per GAME_SPEC.md section 5 — each tier's own limits.
-    tank.maxActiveBullets = ai.maxActiveBullets;
-    tank.fireCooldownDuration = ai.fireCooldownDuration;
+    tank.maxActiveBullets = ammoOverride ? ammoOverride.maxActiveBullets : ai.maxActiveBullets;
+    tank.fireCooldownDuration = ammoOverride ? ammoOverride.fireCooldownDuration : ai.fireCooldownDuration;
     matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai });
   }
 
@@ -128,8 +141,8 @@ function updateMatch(dt) {
       }
     } else {
       const opponents = matchTanks.filter((other) => other !== entry).map((other) => other.tank);
-      // `bullets` is only used by tiers that dodge (see HardAI); EasyAI
-      // ignores the extra argument, so it's passed unconditionally.
+      // Bullets in flight are passed to every tier uniformly; only tiers
+      // that dodge (Medium and up) actually look at them.
       const decision = entry.ai.update(dt, entry.tank, opponents, maze, bullets);
       entry.tank.update(dt, decision.keys);
       maze.resolveTankCollision(entry.tank);
@@ -249,7 +262,7 @@ function handleBriefingClick(clicked) {
     config.aiCount = count;
   } else if (clicked.startsWith('diff:')) {
     const [, aiIndex, tier] = clicked.split(':');
-    if (AI_TIERS[tier]) config.aiDifficulties[Number(aiIndex)] = tier;
+    if (AI_TIERS[tier]) config.aiDifficulties[Number(aiIndex)] = tier; // unbuilt tiers stay unselectable, per GAME_SPEC.md section 6
   } else if (clicked.startsWith('rebind:')) {
     const [, playerIndex, action] = clicked.split(':');
     awaitingRebind = { playerIndex: Number(playerIndex), action };

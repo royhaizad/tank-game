@@ -32,6 +32,18 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
   stops being reachable along the path it was planned from (e.g. shoved off-course by
   reversing) — the earlier root cause of it looking permanently stuck against a wall.
   Fires instantly (0s delay) on aim+line-of-sight; limited to 1 bullet + 1s cooldown.
+- **Medium AI** (`src/ai/medium.js`): `class MediumAI extends EasyAI` — inherits all of
+  the above navigation untouched (so Easy nav fixes are Medium nav fixes) and turns up
+  four dials: ~9° fire window instead of ~15° (only takes clean shots), 2 bullets + 0.6s
+  cooldown, 0.4s re-target cadence, and a dodge that sidesteps bullets on a collision
+  course within 180px. Wins ~60% vs Easy over 500 headless matches (even = 50%).
+  **Predictive/leading aim was built, measured, and cut** — with no turret the shot
+  always leaves along the driving heading, so leading only shifts *when* it fires. See
+  GAME_SPEC.md section 5.1; it belongs in Hard, together with aim-turning.
+- **AI tier wiring**: `AI_TIERS` in `src/main.js` maps a tier name to its brain class
+  and ammo limits. Adding Hard = one row there, one row in the GAME_SPEC 5.1 ladder,
+  and dropping `disabled` from the Hard toggle in `src/ui/menu.js`. Tiers missing from
+  `AI_TIERS` are greyed out on Mission Briefing and refuse selection.
 - **Multiplayer**: Mission Briefing screen (1-3 players, 0-3 AI, per-AI difficulty,
   inline per-player key rebinding); free-for-all (any bullet hurts any tank);
   last-tank-standing win + draw case; P1/P2/P3 + AI1/AI2/AI3 on-map labels.
@@ -51,17 +63,24 @@ a 6-deep unmerged stack before. Merge back to `main` after testing in the browse
 
 ## Planned next
 
-Nothing currently queued — see Known gaps below for candidates.
+**Hard AI** — being built in a parallel session on its own branch, so expect
+`src/ai/hard.js` plus a third row in `AI_TIERS` (`src/main.js`) and in the section 5.1
+ladder table. Those two tables are the likely merge-conflict points between the Medium
+and Hard branches; both are additive one-row changes.
 
 ## Known gaps
 
-Per `GAME_SPEC.md` section 12: **Medium + Hard AI** (#4), **power-ups** (#5),
-**pixel art pass** (#7), **audio pass** (#8) all remain.
+Per `GAME_SPEC.md` section 12: **Hard AI** (#4), **power-ups** (#5),
+**pixel art pass** (#7), **audio pass** (#8) all remain. (Easy and Medium AI are
+done.) Note for whoever builds Hard: the "aim prediction" idea is only worth
+implementing together with hull aim-turning — see GAME_SPEC.md section 5.1 for the
+measurements behind that.
 
-- **Medium/Hard AI don't exist** — shown but disabled ("Coming soon") in the UI.
-  GAME_SPEC.md section 5 flags they need a *new* defining trait (predictive aiming,
-  bank shots, faster paths), since "pathfinding when out of sight" no longer separates
-  them from Easy.
+- **Hard AI doesn't exist** — shown but disabled ("Coming soon") in the UI. Its
+  defining traits per the section 5.1 ladder are aim-turning (hunting a shot rather
+  than taking whatever lines up while driving) and bank shots; "pathfinding" doesn't
+  separate any tier from Easy, and predictive aim is only worth it alongside
+  aim-turning.
 - `assets/sprites/` (22 files) is untracked on purpose — no code references sprites yet.
 - Only synthesized audio exists (`src/engine/audio.js`, empty-fire click via Web Audio).
 
