@@ -61,7 +61,7 @@ class Menu {
 
   // Mission Briefing screen, per GAME_SPEC.md section 6: pick player count
   // (1-3), AI count (0-3, only 0-selectable when players > 1), each AI's
-  // difficulty (Medium/Hard disabled — not built yet), and each player's
+  // difficulty (Hard disabled — not built yet), and each player's
   // control scheme (rebindable inline, same as the pause menu's Change
   // Controls). `config` is { playerCount, aiCount, aiDifficulties[3] }.
   // stats: label -> { kills, deaths, wins } session tallies (src/main.js) —
@@ -192,7 +192,7 @@ class Menu {
 
     const tiers = [
       { id: 'easy', label: 'Easy' },
-      { id: 'medium', label: 'Med', disabled: true },
+      { id: 'medium', label: 'Med' },
       { id: 'hard', label: 'Hard', disabled: true }
     ];
     const boxW = 55;

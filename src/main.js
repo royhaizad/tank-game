@@ -39,6 +39,17 @@ function resetStats() {
 
 const PLAYER_AUTO_FIRE_INTERVAL = 0.5; // s, between auto-fired shots while the fire key is held
 
+// The AI difficulty ladder, per GAME_SPEC.md section 5. One row per built
+// tier: which brain drives the tank, and that tier's ammo limits (those
+// live on the Tank, not the AI, so they're applied at spawn below). A tier
+// missing from this table is one that isn't built yet — the Mission
+// Briefing greys those out (see menu.js) and handleBriefingClick refuses
+// to select them, so there's a single place to add Hard later.
+const AI_TIERS = {
+  easy: { Ctor: EasyAI, maxActiveBullets: 1, fireCooldownDuration: 1 },
+  medium: { Ctor: MediumAI, maxActiveBullets: 2, fireCooldownDuration: 0.6 }
+};
+
 function activeBulletCount(tank) {
   return bullets.reduce((count, bullet) => count + (bullet.alive && bullet.owner === tank ? 1 : 0), 0);
 }
@@ -59,10 +70,11 @@ function startMatch() {
 
   for (let i = 0; i < config.aiCount; i++) {
     const spawn = spawnPoints[spawnIndex++];
+    const tier = AI_TIERS[config.aiDifficulties[i]] || AI_TIERS.easy;
     const tank = new Tank(spawn.x, spawn.y, Menu.AI_COLORS[i]);
-    tank.maxActiveBullets = 1; // AI ammo override, per GAME_SPEC.md section 5
-    tank.fireCooldownDuration = 1; // s, per GAME_SPEC.md section 5
-    matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai: new EasyAI() });
+    tank.maxActiveBullets = tier.maxActiveBullets; // AI ammo override, per GAME_SPEC.md section 5
+    tank.fireCooldownDuration = tier.fireCooldownDuration; // s, per GAME_SPEC.md section 5
+    matchTanks.push({ tank, kind: 'ai', label: `AI${i + 1}`, ai: new tier.Ctor() });
   }
 
   matchTanks.forEach((entry) => ensureStats(entry.label));
@@ -116,7 +128,9 @@ function updateMatch(dt) {
       }
     } else {
       const opponents = matchTanks.filter((other) => other !== entry).map((other) => other.tank);
-      const decision = entry.ai.update(dt, entry.tank, opponents, maze);
+      // Bullets in flight are passed to every tier uniformly; only tiers
+      // that dodge (Medium and up) actually look at them.
+      const decision = entry.ai.update(dt, entry.tank, opponents, maze, bullets);
       entry.tank.update(dt, decision.keys);
       maze.resolveTankCollision(entry.tank);
 
@@ -235,7 +249,7 @@ function handleBriefingClick(clicked) {
     config.aiCount = count;
   } else if (clicked.startsWith('diff:')) {
     const [, aiIndex, tier] = clicked.split(':');
-    if (tier === 'easy') config.aiDifficulties[Number(aiIndex)] = tier;
+    if (AI_TIERS[tier]) config.aiDifficulties[Number(aiIndex)] = tier; // unbuilt tiers stay unselectable, per GAME_SPEC.md section 6
   } else if (clicked.startsWith('rebind:')) {
     const [, playerIndex, action] = clicked.split(':');
     awaitingRebind = { playerIndex: Number(playerIndex), action };
