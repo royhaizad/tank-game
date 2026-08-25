@@ -94,10 +94,9 @@ this balance in any future power-up added.
 ## 5. AI Opponents — 3 Difficulty Tiers, 0–3 Simultaneous
 
 0–3 AI tanks per match, each independently set to Easy/Medium/Hard on the
-Mission Briefing screen (see section 6). Currently only Easy is
-implemented — Medium and Hard are selectable in the UI but disabled
-("Coming soon") until built, same treatment as any other not-yet-built
-feature in this doc.
+Mission Briefing screen (see section 6). Easy and Medium are implemented;
+Hard is selectable in the UI but disabled ("Coming soon") until built, same
+treatment as any other not-yet-built feature in this doc.
 
 **Targeting (FFA):** every match is free-for-all (see section 1 and
 section 9) — there is no player-team/AI-team distinction, and a bullet
@@ -111,21 +110,77 @@ for the next reaction tick.
 | Tier | Movement | Accuracy | Bank shots | Reaction delay | Power-up behavior |
 |---|---|---|---|---|---|
 | **Easy** | "Hallway driving": commits to a straight heading down a whole corridor at a time, stops and pivots cleanly at corners, and only stops/turns/reverses when something the route didn't anticipate blocks it | Fires reliably once eligible (see note) | None (direct line of sight only) | ~0.8s (re-targeting which opponent only — pathing/waypoint updates, obstacle response, corner turns, and firing are all immediate, see notes) | Ignores ~half the time |
-| **Medium** | Simple A* pathfinding when out of sight | ~75% | Occasional 1-wall | ~0.4s | Goes for it if closer to AI than player |
+| **Medium** | Everything Easy does, plus dodging: sidesteps out of the path of an incoming bullet that's on a collision course nearby | Only takes clean shots — a ~9° fire window vs Easy's ~15° | None (direct line of sight only) | ~0.4s (re-targeting which opponent only, same as Easy) | Goes for it if closer to AI than player |
 | **Hard** | Full A* pathfinding, actively hunts | ~90% | Multi-wall, calculated | ~0.1s | Aggressively contests pickups, evasive strafing |
 
-**Note:** Easy now also pathfinds around walls (added to fix it getting stuck leaning
-on a wall with no route to its target), so "pathfinding" no longer distinguishes
-Medium/Hard from Easy. When Medium is built, it needs a different defining trait
-than "pathfinding when out of sight" — e.g. faster/more direct paths, predictive
-aiming, or actually using bank shots — to stay meaningfully harder than Easy.
+**Note:** Easy also pathfinds around walls (added to fix it getting stuck leaning on
+a wall with no route to its target), so "pathfinding" doesn't distinguish any tier
+from any other — every tier navigates by the same pathfound waypoints. The axes that
+actually separate the tiers are in section 5.1.
+
+### 5.1 AI difficulty ladder
+
+Every tier shares one brain and one navigation system: `MediumAI` extends `EasyAI`
+(`src/ai/medium.js`), inheriting its pathfinding, hallway driving, corner pivots and
+obstacle recovery untouched, and turning up a small number of dials. A navigation fix
+in Easy is therefore automatically a navigation fix in every tier above it. **Adding a
+tier means adding a row here and a row to `AI_TIERS` in `src/main.js`** — that table
+maps a tier to its brain class and its ammo limits, and any tier missing from it stays
+greyed out on the Mission Briefing screen.
+
+| Axis | Easy | Medium | Hard (not built) |
+|---|---|---|---|
+| **Fire trigger** | Fires the instant it has a clean shot (0s) | Same — 0s | ~0.1s reaction |
+| **Fire window** | ~15° (0.26 rad) — takes any shot roughly lined up | **~9° (0.16 rad) — holds out for a clean shot** | Tighter still, plus actively turns to aim |
+| **Ammo** | 1 bullet in flight + 1s cooldown | **2 bullets in flight + 0.6s cooldown** | TBD — looser again |
+| **Re-target cadence** | ~0.8s | **~0.4s** | ~0.1s |
+| **Dodging** | None | **Sidesteps a bullet on a collision course within 180px** | Evasive strafing |
+| **Bank shots** | None | None | Multi-wall, calculated |
+| **Aim prediction** | None | None — see below | Belongs here, with aim-turning |
+
+Measured over 500 headless Medium-vs-Easy matches, Medium wins ~60% (an even matchup
+is ~50%) and converts 0.59 kills per shot against Easy's 0.43.
+
+**Why Medium has no predictive aim.** Leading the target by its current velocity was
+specced as Medium's aim upgrade, built, measured, and cut. It gained nothing even
+against a target driving in a dead straight line (95.0% vs 95.5% hit rate) and lost
+badly against one that stops and pivots the way these AI do (41.5% vs 56.8%). The
+reason is structural, and it applies to any future tier: **these tanks have no turret**,
+so a shot always leaves along the tank's current driving heading (section 3.1, 3.2). A
+predicted lead point can therefore only change *when* an AI fires, never where the
+bullet actually goes — and firing at moments when the barrel isn't on the target is
+strictly worse. Compounding it, bullets travel only ~15% faster than tanks (160 vs
+140 px/s, section 3.2), so the lead needed is enormous and any prediction error is
+large. Prediction only starts paying once an AI **turns its hull to line the barrel
+up**, which is Hard's "actively hunts" behavior — so aim prediction and aim-turning
+have to be built together, in Hard, or not at all.
+
+**Dodging (Medium):** watches every bullet in flight, and treats one as a threat when
+it's within 180px, would arrive within 1s, would pass within roughly a tank's radius,
+and has clear line of sight (a bullet with a wall in between will change direction
+before it arrives — reacting to *bounce* paths is Hard's job, not Medium's). It then
+sidesteps: since tanks can't strafe (section 3.1), it drives whichever of forward or
+backward carries it sideways off the bullet's line, rotating toward straight-sideways
+as it goes, and it checks there's room that way before committing rather than reversing
+into a wall. Dodging pre-empts normal navigation for as long as the threat lasts (plus
+a 0.25s minimum so a single frame of threat can't cause a twitch), then drops its
+committed waypoint so the route is re-planned from wherever it ended up. A hard 1.5s
+cap plus a 0.6s cooldown guarantees navigation always gets control back, so bullets
+ricocheting nearby can never lock the AI into dodging forever.
 
 **Firing trigger (Easy):** fires instantly (0s delay) the moment its current target is
 aimed-at and directly visible (unobstructed line of sight) — not a random chance, and
-no longer a 0.5s aim-hold (that felt too slow to get an opening shot off). "Accuracy"
-for Easy is effectively retired until a real aim-miss mechanic exists; Medium/Hard
-should define their own accuracy behavior when built. Still subject to the
-1-bullet/1s-cooldown ammo limit below.
+no longer a 0.5s aim-hold (that felt too slow to get an opening shot off). Still
+subject to the ammo limits below.
+
+**"Accuracy" as an axis:** there is no random aim-miss mechanic in this game, so the
+percentages in the tier table above are descriptive, not literal roll chances. What
+actually varies per tier is how tight a shot has to be lined up before the AI takes it
+(the fire window in section 5.1). Medium fires no less reliably than Easy — it just
+declines the sloppy shots Easy takes. Note that a tier *cannot* be made harder by
+adding an aim-hold delay: Easy already fires at 0s, so any hold makes a tier slower on
+the trigger than the one below it. Medium originally specced a 0.3s hold and it
+measured as a straight downgrade (41% win rate vs Easy, where an even matchup is 50%).
 
 **Movement responsiveness (Easy):** obstacle avoidance (stop/turn/reverse) and its
 pathfound waypoint both react every frame, not on the ~0.8s reaction-delay cadence —
@@ -169,10 +224,12 @@ obstacle, or a maze-wall collision push) could otherwise leave it committed to a
 waypoint on the other side of a wall it could never cross no matter how it turned,
 which read as the AI "getting stuck" pressed against a wall.
 
-**Ammo (all tiers):** AI opponents fire only 1 bullet at a time, with a ~1 second
-cooldown after it's gone before firing again — stricter than the player's 5-bullet,
-no-cooldown base cannon from section 3.2. Keeps the AI from flooding the maze with
-bullets at close range.
+**Ammo (per tier):** every AI tier is held to stricter ammo than the player's
+5-bullet, no-cooldown base cannon from section 3.2, so AI can't flood the maze with
+bullets at close range — but the exact limit is one of the difficulty dials (see
+section 5.1). Easy fires 1 bullet at a time with a ~1s cooldown after it's gone;
+Medium fires 2 at a time with a 0.6s cooldown. The limits live in the `AI_TIERS` table
+in `src/main.js`, since they're properties of the tank rather than of the AI's brain.
 
 ---
 
@@ -187,8 +244,8 @@ bullets at close range.
      menu's Change Controls, extended across every player's bindings so no
      two players can ever share a key).
    - Enemy Forces: 0P / 1 / 2 / 3 toggle picks how many AI tanks. Each
-     active AI slot independently picks Easy/Medium/Hard (Medium/Hard
-     disabled — "Coming soon," same as everywhere else in this doc).
+     active AI slot independently picks Easy/Medium/Hard (Hard disabled —
+     "Coming soon," same as everywhere else in this doc).
      0 AI is only selectable when there are 2+ players (a 1-player, 0-AI
      match would have nothing to fight).
    - "Battle!" button starts the match with the configured forces.
